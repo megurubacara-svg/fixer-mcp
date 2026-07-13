@@ -409,28 +409,33 @@ class ResearchQueryFallbackTests(unittest.TestCase):
 
 
 class WebMcpConfigTests(unittest.TestCase):
-    @unittest.skip("public export replaces private MCP configs with examples")
-    def test_repo_root_mcp_config_exposes_react_native_guide_for_codex_pro_discovery(self) -> None:
-        repo_root = Path(__file__).resolve().parents[2]
+    def test_project_mcp_config_exposes_react_native_guide_for_codex_pro_discovery(self) -> None:
         bootstrap_codex_pro_import_path()
 
         from client_wires.codex_compat.config import discover_project_mcp_servers
 
-        servers = discover_project_mcp_servers(repo_root)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            config_path = repo_root / "mcp_config.json"
+            config_path.write_text(
+                '{"mcpServers":{"react-native-guide":{"command":"npx",'
+                '"args":["-y","@mrnitro360/react-native-mcp-guide@latest"],'
+                '"transport":"stdio","startup_timeout_sec":120,'
+                '"tool_timeout_sec":600,"timeout":600}}}\n',
+                encoding="utf-8",
+            )
+            servers = discover_project_mcp_servers(repo_root)
 
-        self.assertIn("react-native-guide", servers)
-        self.assertEqual(servers["react-native-guide"]["command"], "npx")
-        self.assertEqual(servers["react-native-guide"]["args"], ["-y", "@mrnitro360/react-native-mcp-guide@latest"])
-        self.assertEqual(servers["react-native-guide"]["transport"], "stdio")
-        self.assertEqual(servers["react-native-guide"]["cwd"], str(repo_root.resolve()))
-        self.assertEqual(servers["react-native-guide"]["startup_timeout_sec"], 120)
-        self.assertEqual(servers["react-native-guide"]["tool_timeout_sec"], 600)
-        self.assertEqual(servers["react-native-guide"]["timeout"], 600)
-        self.assertEqual(servers["react-native-guide"]["_source"], "project_mcp")
-        self.assertEqual(
-            servers["react-native-guide"]["_config_path"],
-            str((repo_root / "mcp_config.json").resolve()),
-        )
+            self.assertIn("react-native-guide", servers)
+            self.assertEqual(servers["react-native-guide"]["command"], "npx")
+            self.assertEqual(servers["react-native-guide"]["args"], ["-y", "@mrnitro360/react-native-mcp-guide@latest"])
+            self.assertEqual(servers["react-native-guide"]["transport"], "stdio")
+            self.assertEqual(servers["react-native-guide"]["cwd"], str(repo_root.resolve()))
+            self.assertEqual(servers["react-native-guide"]["startup_timeout_sec"], 120)
+            self.assertEqual(servers["react-native-guide"]["tool_timeout_sec"], 600)
+            self.assertEqual(servers["react-native-guide"]["timeout"], 600)
+            self.assertEqual(servers["react-native-guide"]["_source"], "project_mcp")
+            self.assertEqual(servers["react-native-guide"]["_config_path"], str(config_path.resolve()))
 
 
 class FixerMcpEnvBindingTests(unittest.TestCase):

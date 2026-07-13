@@ -614,7 +614,6 @@ class McpPickerAndPromptTests(unittest.TestCase):
 
 
 class LaunchEnvTests(unittest.TestCase):
-    @unittest.skip("public export excludes private runtime state")
     def test_build_backend_launch_env_clears_proxy_for_codex_backend(self) -> None:
         adapter = type(
             "Adapter",
@@ -626,6 +625,8 @@ class LaunchEnvTests(unittest.TestCase):
         )()
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)
+            db_path = cwd / "fixer.db"
+            db_path.touch()
             with patch.dict(
                 os.environ,
                 {
@@ -636,13 +637,14 @@ class LaunchEnvTests(unittest.TestCase):
                 },
                 clear=True,
             ):
-                env = fixer_wire._build_backend_launch_env(
-                    adapter,
-                    object(),
-                    cwd=cwd,
-                    load_llm_env=lambda: {"OPENAI_API_KEY": "codex-only"},
-                    merge_env_with_os=lambda payload: {"HOME": "/tmp/home", **payload},
-                )
+                with patch.object(fixer_wire, "_resolve_fixer_db_path", return_value=db_path):
+                    env = fixer_wire._build_backend_launch_env(
+                        adapter,
+                        object(),
+                        cwd=cwd,
+                        load_llm_env=lambda: {"OPENAI_API_KEY": "codex-only"},
+                        merge_env_with_os=lambda payload: {"HOME": "/tmp/home", **payload},
+                    )
 
             self.assertFalse((cwd / ".codex").exists())
 
@@ -659,13 +661,14 @@ class LaunchEnvTests(unittest.TestCase):
             self.assertNotIn(key, env)
         self.assertEqual(env["PREPARED"], "1")
 
-    @unittest.skip("public export excludes private runtime state")
     def test_build_backend_launch_env_clears_proxy_for_droid_backend(self) -> None:
         from client_wires.backends.droid_adapter import DroidBackendAdapter
 
         adapter = DroidBackendAdapter()
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)
+            db_path = cwd / "fixer.db"
+            db_path.touch()
             with patch.dict(
                 os.environ,
                 {
@@ -677,11 +680,12 @@ class LaunchEnvTests(unittest.TestCase):
                 },
                 clear=True,
             ):
-                env = fixer_wire._build_backend_launch_env(
-                    adapter,
-                    object(),
-                    cwd=cwd,
-                )
+                with patch.object(fixer_wire, "_resolve_fixer_db_path", return_value=db_path):
+                    env = fixer_wire._build_backend_launch_env(
+                        adapter,
+                        object(),
+                        cwd=cwd,
+                    )
 
         for key in (
             "ALL_PROXY",
@@ -791,23 +795,30 @@ cwd = "./frontend"
         self.assertIn("gopls", merged)
         self.assertIn("eslint", merged)
 
-    @unittest.skip("public export replaces private MCP configs with examples")
-    def test_repo_web_mcp_config_exposes_react_native_guide(self) -> None:
-        repo_root = Path(__file__).resolve().parents[2]
+    def test_project_web_mcp_config_exposes_react_native_guide(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            config_path = repo_root / "webMCP.toml"
+            config_path.write_text(
+                '[mcp_servers.react-native-guide]\n'
+                'command = "npx"\n'
+                'args = ["-y", "@mrnitro360/react-native-mcp-guide@latest"]\n'
+                'transport = "stdio"\n'
+                'startup_timeout_sec = 120\n'
+                'tool_timeout_sec = 600\n'
+                'timeout = 600\n',
+                encoding="utf-8",
+            )
 
-        servers = fixer_wire._load_project_web_mcp_servers(repo_root)
+            servers = fixer_wire._load_project_web_mcp_servers(repo_root)
 
-        self.assertIn("react-native-guide", servers)
-        self.assertEqual(servers["react-native-guide"]["command"], "npx")
-        self.assertEqual(servers["react-native-guide"]["args"], ["-y", "@mrnitro360/react-native-mcp-guide@latest"])
-        self.assertEqual(servers["react-native-guide"]["transport"], "stdio")
-        self.assertEqual(servers["react-native-guide"]["_source"], "project_mcp")
-        self.assertEqual(
-            servers["react-native-guide"]["_config_path"],
-            str((repo_root / "webMCP.toml").resolve()),
-        )
+            self.assertIn("react-native-guide", servers)
+            self.assertEqual(servers["react-native-guide"]["command"], "npx")
+            self.assertEqual(servers["react-native-guide"]["args"], ["-y", "@mrnitro360/react-native-mcp-guide@latest"])
+            self.assertEqual(servers["react-native-guide"]["transport"], "stdio")
+            self.assertEqual(servers["react-native-guide"]["_source"], "project_mcp")
+            self.assertEqual(servers["react-native-guide"]["_config_path"], str(config_path.resolve()))
 
-    @unittest.skip("public export replaces private MCP configs with examples")
     def test_load_available_servers_includes_repo_web_mcp_servers(self) -> None:
         repo_root = Path(__file__).resolve().parents[2]
         main_module = _fake_codex_main_module()
@@ -833,6 +844,11 @@ cwd = "./frontend"
             patch.object(fixer_wire, "_inject_research_query_server", side_effect=lambda servers, _cwd: servers),
             patch.object(fixer_wire, "_inject_figma_console_server", side_effect=lambda servers, _cwd: servers),
             patch.object(fixer_wire, "_inject_forced_fixer_server", side_effect=lambda servers: servers),
+            patch.object(
+                fixer_wire,
+                "_load_project_web_mcp_servers",
+                return_value={"react-native-guide": {"command": "npx", "args": ["-y", "@mrnitro360/react-native-mcp-guide@latest"]}},
+            ),
         ):
             available, _config_env_vars, _adapter, _ensure_sqlite_scaffold = fixer_wire._load_available_servers(repo_root)
 
@@ -2097,8 +2113,8 @@ class FixerResumeUiTests(unittest.TestCase):
         row_label = options[1].label
         self.assertTrue(row_label.startswith("Codex CLI"))
         self.assertIn("Implement fixer resume flow", row_label)
-        self.assertIn("2026-02-01 13:00", row_label)
-        self.assertIn("2026-02-01 15:30", row_label)
+        self.assertIn(summary.created.astimezone().strftime("%Y-%m-%d %H:%M"), row_label)
+        self.assertIn(summary.updated.astimezone().strftime("%Y-%m-%d %H:%M"), row_label)
         self.assertTrue(row_label.endswith("session-123"))
 
     def test_select_fixer_resume_returns_backend_qualified_non_codex_value(self) -> None:

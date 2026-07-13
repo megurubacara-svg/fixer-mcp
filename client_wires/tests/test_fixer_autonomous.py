@@ -617,7 +617,6 @@ class FixerAutonomousTests(unittest.TestCase):
         self.assertIn("fixer_mcp.set_overseer_fixer_run_state", prompt)
         self.assertIn("Do not ask the human Architect", prompt)
 
-    @unittest.skip("public export excludes private runtime state")
     def test_build_common_codex_env_uses_plain_os_env_for_non_codex_backends(self) -> None:
         adapter = type(
             "Adapter",
@@ -640,6 +639,7 @@ class FixerAutonomousTests(unittest.TestCase):
             with (
                 tempfile.TemporaryDirectory() as tmp,
                 patch.dict("sys.modules", {"client_wires.codex_compat.llm": fake_module}),
+                patch.object(fixer_wire, "_resolve_fixer_db_path", return_value=Path(tmp) / "fixer.db"),
             ):
                 env = fixer_autonomous._build_common_codex_env(adapter, object(), Path(tmp))
 

@@ -58,7 +58,10 @@ class MVPScaffoldExecutionTests(unittest.TestCase):
                 (nested_root / "neuro_launch_client").mkdir()
                 (nested_root / "neuro_launch_flutter").mkdir()
 
-            mvp_scaffold.scaffold_mvp_project(spec, command_runner=fake_runner)
+            with patch.object(mvp_scaffold, "_ensure_serverpod_available") as ensure_serverpod:
+                mvp_scaffold.scaffold_mvp_project(spec, command_runner=fake_runner)
+
+            ensure_serverpod.assert_called_once_with()
 
             self.assertTrue((spec.destination / "README.md").is_file())
             self.assertTrue((spec.destination / "WORKFLOW.md").is_file())

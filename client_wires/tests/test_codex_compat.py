@@ -74,10 +74,7 @@ class CodexCompatImportSurfaceTests(unittest.TestCase):
         self.assertEqual(mode, "chrome")
         self.assertEqual(available["playwright"]["command"], sys.executable)
         self.assertIn("--user-data-dir", available["playwright"]["args"])
-        self.assertIn(
-            str(Path.home() / ".codex" / "playwright-profiles" / "operator-default"),
-            available["playwright"]["args"],
-        )
+        self.assertIn(str(runtime.PLAYWRIGHT_CHROME_PROFILE_DEFAULT), available["playwright"]["args"])
         self.assertNotIn("--isolated", available["playwright"]["args"])
         self.assertEqual(selected["playwright"]["_source"], "preset_mcp")
 
@@ -100,10 +97,7 @@ class CodexCompatImportSurfaceTests(unittest.TestCase):
         self.assertEqual(available["playwright"]["command"], sys.executable)
         self.assertIn("--user-data-dir", available["playwright"]["args"])
         self.assertIn("--headless", available["playwright"]["args"])
-        self.assertIn(
-            str(Path.home() / ".codex" / "playwright-profiles" / "operator-default"),
-            available["playwright"]["args"],
-        )
+        self.assertIn(str(runtime.PLAYWRIGHT_CHROME_PROFILE_DEFAULT), available["playwright"]["args"])
         self.assertNotIn("--isolated", available["playwright"]["args"])
         self.assertEqual(selected["playwright"]["_source"], "preset_mcp")
 
@@ -225,14 +219,13 @@ class CodexCompatImportSurfaceTests(unittest.TestCase):
         self.assertEqual(command[2:], ["--cdp-endpoint", "http://127.0.0.1:64530", "--viewport-size", "1280x720"])
         self.assertIn(str(Path(tmp) / "node_modules"), popen.call_args.kwargs["env"]["NODE_PATH"])
 
-    def test_playwright_wrapper_and_owned_context_helper_match_codex_pro_copy(self) -> None:
-        codex_pro = Path.home() / "Desktop/projects/mcp_servers/codex_pro_app"
+    def test_playwright_wrapper_and_owned_context_helper_are_packaged_locally(self) -> None:
+        package_dir = Path(playwright_chrome_cdp.__file__).parent
+
+        self.assertEqual(runtime.playwright_chrome_cdp_wrapper_path(), package_dir / "playwright_chrome_cdp.py")
         for name in ("playwright_chrome_cdp.py", "playwright_owned_context_mcp.cjs"):
-            self.assertEqual(
-                (Path(playwright_chrome_cdp.__file__).with_name(name)).read_bytes(),
-                (codex_pro / name).read_bytes(),
-                f"duplicated Playwright ownership implementation drifted: {name}",
-            )
+            asset = package_dir / name
+            self.assertTrue(asset.is_file(), f"missing packaged Playwright ownership asset: {name}")
 
     def test_load_llm_env_alias_uses_codex_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

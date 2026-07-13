@@ -68,7 +68,7 @@ fixer --role fixer
 
 ```bash
 python3 -m unittest discover -s client_wires/tests
-cd fixer_mcp && go build ./... && env -u FIXER_MCP_LOCKED_ROLE go test ./...
+cd fixer_mcp && go build ./... && env -u FIXER_DB_PATH -u FIXER_MCP_LOCKED_ROLE -u FIXER_MCP_DEFAULT_ROLE -u FIXER_MCP_DEFAULT_CWD -u FIXER_MCP_AUTO_AUTH -u FIXER_MCP_TOOL_PROFILE go test ./...
 make docker-smoke
 ```
 

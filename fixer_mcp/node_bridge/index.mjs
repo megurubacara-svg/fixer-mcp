@@ -22,9 +22,9 @@ import { summarizeTurnEvent, summarizeTurnStatus } from "./turn_events.mjs";
 const PORT = Number(process.env.CODEX_BRIDGE_PORT ?? "14242");
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const CODEX_MCP_ALLOWLIST = (process.env.CODEX_MCP_ALLOWLIST ?? "").trim();
-const DEFAULT_CODEX_MODEL = (process.env.CODEX_DEFAULT_MODEL ?? "gpt-5.3-codex").trim();
+const DEFAULT_CODEX_MODEL = (process.env.CODEX_DEFAULT_MODEL ?? "gpt-5.6-luna").trim();
 const DEFAULT_REASONING_EFFORT = (
-  process.env.CODEX_DEFAULT_REASONING_EFFORT ?? "high"
+  process.env.CODEX_DEFAULT_REASONING_EFFORT ?? "xhigh"
 ).trim();
 const DISABLE_CODEX_SQLITE = (process.env.CODEX_BRIDGE_DISABLE_CODEX_SQLITE ?? "1") !== "0";
 // Codex may emit very noisy logs like:
@@ -131,7 +131,7 @@ function normalizeReasoningEffort(raw) {
 }
 
 const NORMALIZED_DEFAULT_REASONING_EFFORT =
-  normalizeReasoningEffort(DEFAULT_REASONING_EFFORT) ?? "high";
+  normalizeReasoningEffort(DEFAULT_REASONING_EFFORT) ?? "xhigh";
 
 function sandboxPolicyForMode(mode, cwd) {
   if (mode === "read-only") return { type: "readOnly" };

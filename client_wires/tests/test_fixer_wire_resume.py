@@ -262,6 +262,18 @@ class FixerWireResumeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            agy_root = home / ".gemini" / "antigravity-cli"
+            (agy_root / "cache").mkdir(parents=True)
+            (agy_root / "conversations").mkdir(parents=True)
+            (agy_root / "cache" / "last_conversations.json").write_text(
+                '{"' + str(cwd.resolve()) + '": "agy-fixer"}',
+                encoding="utf-8",
+            )
+            (agy_root / "conversations" / "agy-fixer.db").write_text(
+                "Use the `init-fixer` skill immediately.\nAntigravity Fixer thread\n",
+                encoding="utf-8",
+            )
+
             with (
                 patch.dict(sys.modules, {"client_wires.codex_compat.sessions": history_module}),
                 patch.object(Path, "home", return_value=home),
@@ -276,6 +288,7 @@ class FixerWireResumeTests(unittest.TestCase):
         self.assertIn(("claude", "claude-fixer"), by_provider)
         self.assertIn(("droid", "droid-fixer"), by_provider)
         self.assertIn(("junie", "junie-fixer"), by_provider)
+        self.assertIn(("antigravity", "agy-fixer"), by_provider)
 
     def test_preview_from_records_reads_claude_message_content_not_role(self) -> None:
         preview = fixer_wire_resume._preview_from_records(
@@ -346,15 +359,25 @@ class FixerWireResumeTests(unittest.TestCase):
 
         self.assertEqual(preview, "Please resume the Fixer for this project.")
 
-    def test_load_fixer_resume_summaries_excludes_unmapped_antigravity_history(self) -> None:
+    def test_load_fixer_resume_summaries_discovers_mapped_antigravity_conversation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
             cwd = Path(tmp) / "workspace" / "self_orchestration"
             cwd.mkdir(parents=True)
-            history_dir = home / ".gemini" / "antigravity-cli"
-            history_dir.mkdir(parents=True)
-            (history_dir / "history.jsonl").write_text(
-                '{"display":"Activate skill `$init-fixer` immediately.","timestamp":1770000000000,"workspace":"'
+            agy_root = home / ".gemini" / "antigravity-cli"
+            (agy_root / "cache").mkdir(parents=True)
+            (agy_root / "conversations").mkdir(parents=True)
+            (agy_root / "cache" / "last_conversations.json").write_text(
+                '{"' + str(cwd.resolve()) + '": "agy-fixer"}',
+                encoding="utf-8",
+            )
+            conversation_file = agy_root / "conversations" / "agy-fixer.db"
+            conversation_file.write_text(
+                "Use the `init-fixer` skill immediately.\nA useful Antigravity Fixer preview\n",
+                encoding="utf-8",
+            )
+            (agy_root / "history.jsonl").write_text(
+                '{"display":"Resume the visible Antigravity Fixer","timestamp":1770000000000,"workspace":"'
                 + str(cwd.resolve())
                 + '","conversationId":"agy-fixer"}\n',
                 encoding="utf-8",
@@ -367,10 +390,86 @@ class FixerWireResumeTests(unittest.TestCase):
             ):
                 fixer_summaries = fixer_wire._load_fixer_resume_summaries(cwd, limit=10)
 
-        self.assertNotIn(
-            ("antigravity", "agy-fixer"),
-            {(fixer_wire_resume.summary_provider(summary), summary.session_id) for summary in fixer_summaries},
+        self.assertEqual(len(fixer_summaries), 1)
+        summary = fixer_summaries[0]
+        self.assertEqual(fixer_wire_resume.summary_provider(summary), "antigravity")
+        self.assertEqual(summary.session_id, "agy-fixer")
+        self.assertEqual(summary.preview, "Resume the visible Antigravity Fixer")
+        self.assertIsNotNone(summary.created.tzinfo)
+        self.assertIsNotNone(summary.updated.tzinfo)
+        self.assertEqual(summary.log_path, conversation_file)
+
+    def test_load_fixer_resume_summaries_uses_antigravity_history_when_latest_is_netrunner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            cwd = Path(tmp) / "workspace" / "self_orchestration"
+            cwd.mkdir(parents=True)
+            agy_root = home / ".gemini" / "antigravity-cli"
+            (agy_root / "cache").mkdir(parents=True)
+            (agy_root / "conversations").mkdir(parents=True)
+            (agy_root / "cache" / "last_conversations.json").write_text(
+                '{"' + str(cwd.resolve()) + '": "agy-runner"}',
+                encoding="utf-8",
+            )
+            (agy_root / "conversations" / "agy-runner.db").write_text(
+                "/run-manual-netrunner\n",
+                encoding="utf-8",
+            )
+            fixer_file = agy_root / "conversations" / "agy-fixer.db"
+            fixer_file.write_text(
+                "/init-fixer\nOlder Antigravity Fixer\n",
+                encoding="utf-8",
+            )
+            (agy_root / "history.jsonl").write_text(
+                '{"display":"Latest runner","timestamp":1770000001000,"workspace":"'
+                + str(cwd.resolve())
+                + '","conversationId":"agy-runner"}\n'
+                + '{"display":"Older Fixer","timestamp":1770000000000,"workspace":"'
+                + str(cwd.resolve())
+                + '","conversationId":"agy-fixer"}\n',
+                encoding="utf-8",
+            )
+            history_module = _fake_codex_history_module([], {})
+
+            with (
+                patch.dict(sys.modules, {"client_wires.codex_compat.sessions": history_module}),
+                patch.object(Path, "home", return_value=home),
+            ):
+                fixer_summaries = fixer_wire._load_fixer_resume_summaries(cwd, limit=10)
+
+        self.assertEqual(
+            [(fixer_wire_resume.summary_provider(summary), summary.session_id) for summary in fixer_summaries],
+            [("antigravity", "agy-fixer")],
         )
+        self.assertEqual(fixer_summaries[0].log_path, fixer_file)
+
+    def test_load_fixer_resume_summaries_ignores_antigravity_mapping_for_other_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            cwd = Path(tmp) / "workspace" / "self_orchestration"
+            other_cwd = Path(tmp) / "workspace" / "other"
+            cwd.mkdir(parents=True)
+            other_cwd.mkdir(parents=True)
+            agy_root = home / ".gemini" / "antigravity-cli"
+            (agy_root / "cache").mkdir(parents=True)
+            (agy_root / "conversations").mkdir(parents=True)
+            (agy_root / "cache" / "last_conversations.json").write_text(
+                '{"' + str(other_cwd.resolve()) + '": "agy-fixer"}',
+                encoding="utf-8",
+            )
+            (agy_root / "conversations" / "agy-fixer.db").write_text(
+                "Use the `init-fixer` skill immediately.\n",
+                encoding="utf-8",
+            )
+            history_module = _fake_codex_history_module([], {})
+
+            with (
+                patch.dict(sys.modules, {"client_wires.codex_compat.sessions": history_module}),
+                patch.object(Path, "home", return_value=home),
+            ):
+                fixer_summaries = fixer_wire._load_fixer_resume_summaries(cwd, limit=10)
+
+        self.assertEqual(fixer_summaries, [])
 
     def test_latest_matching_netrunner_uses_facade_loader_patch(self) -> None:
         summary = _make_history_summary("resume-139", preview="Existing netrunner")

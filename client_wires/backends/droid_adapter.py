@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -14,16 +16,15 @@ from .base import (
     normalize_mcp_server_for_factory,
 )
 from .catalog import load_backend_entry
+from .manifest import ProviderManifest, load_manifest
 
 
 DROID_CANONICAL_KIMI_K26_MODEL = "kimi-k2.6"
 DROID_CANONICAL_KIMI_K26_INTERNAL_MODEL = "custom:Kimi-K2.6-[Kimi]-0"
+DROID_CANONICAL_KIMI_K27_MODEL = "kimi-k2.7-code"
+DROID_CANONICAL_KIMI_K27_INTERNAL_MODEL = "custom:Kimi-K2.7-Code-[Kimi]-0"
 DROID_CANONICAL_GLM_51_MODEL = "glm-5.1"
 DROID_CANONICAL_GLM_51_INTERNAL_MODEL = "custom:GLM-5.1-[Z.AI]-0"
-ZAI_VISION_MCP_SERVER_NAME = "zai-mcp-server"
-ZAI_VISION_MCP_PACKAGE = "@z_ai/mcp-server"
-ZAI_WEB_SEARCH_MCP_SERVER_NAME = "web-search-prime"
-ZAI_WEB_SEARCH_MCP_URL = "https://api.z.ai/api/mcp/web_search_prime/mcp"
 
 DROID_LEGACY_MODEL_ALIASES = {
     "custom:qwen/qwen3.6-plus:free": "OpenRouter Qwen3.6 Plus Free",
@@ -38,6 +39,11 @@ DROID_LEGACY_MODEL_ALIASES = {
     "kimi-k2.6": DROID_CANONICAL_KIMI_K26_MODEL,
     "kimi k2.6 [kimi]": DROID_CANONICAL_KIMI_K26_MODEL,
     "custom:kimi-k2.6-[kimi]-0": DROID_CANONICAL_KIMI_K26_MODEL,
+    "kimi-k2.7-code": DROID_CANONICAL_KIMI_K27_MODEL,
+    "kimi-k2.7": DROID_CANONICAL_KIMI_K27_MODEL,
+    "kimi k2.7 code": DROID_CANONICAL_KIMI_K27_MODEL,
+    "kimi k2.7 code [kimi]": DROID_CANONICAL_KIMI_K27_MODEL,
+    "custom:kimi-k2.7-code-[kimi]-0": DROID_CANONICAL_KIMI_K27_MODEL,
     "glm-5.1": DROID_CANONICAL_GLM_51_MODEL,
     "z.ai glm-5.1": DROID_CANONICAL_GLM_51_MODEL,
     "z.ai glm 5.1": DROID_CANONICAL_GLM_51_MODEL,
@@ -49,6 +55,7 @@ DROID_LEGACY_MODEL_ALIASES = {
 
 DROID_INTERNAL_MODEL_IDS = {
     DROID_CANONICAL_KIMI_K26_MODEL: DROID_CANONICAL_KIMI_K26_INTERNAL_MODEL,
+    DROID_CANONICAL_KIMI_K27_MODEL: DROID_CANONICAL_KIMI_K27_INTERNAL_MODEL,
     DROID_CANONICAL_GLM_51_MODEL: DROID_CANONICAL_GLM_51_INTERNAL_MODEL,
     "Z.AI GLM-5": "custom:GLM-5-[Z.AI]-0",
     "Z.AI GLM-4.7": "custom:GLM-4.7-[Z.AI]-0",
@@ -58,6 +65,10 @@ DROID_INTERNAL_MODEL_IDS = {
 }
 
 
+def _manifest_path() -> Path:
+    return Path(__file__).resolve().parent / "manifest" / "droid.manifest.json"
+
+
 def normalize_droid_model_alias(model: str | None) -> str:
     candidate = (model or "").strip()
     if not candidate:
@@ -65,69 +76,65 @@ def normalize_droid_model_alias(model: str | None) -> str:
     return DROID_LEGACY_MODEL_ALIASES.get(candidate.casefold(), candidate)
 
 
-def droid_internal_model_id(model: str | None) -> str:
-    public_model = normalize_droid_model_alias(model)
-    return DROID_INTERNAL_MODEL_IDS.get(public_model, public_model)
+class _DroidScopeManager:
+    """Reversibly pre-cleans the global ~/.factory home.
 
+    Droid does not honor a configurable factory-home environment variable, so
+    the only way to prevent global skills/MCP from leaking into a scoped run
+    is to move aside the relevant global paths before launch and restore them
+    afterwards.  The operator's ~/.factory/settings.json is left in place so
+    customModels continue to resolve.
+    """
 
-def _resolve_z_ai_api_key(settings_path: Path | None = None) -> str:
-    env_value = os.environ.get("Z_AI_API_KEY", "").strip()
-    if env_value:
-        return env_value
+    _SCOPED_NAMES = ("skills", "mcp.json")
 
-    path = settings_path or (Path.home() / ".factory" / "settings.json")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return ""
+    def __init__(self, factory_home: Path | None = None) -> None:
+        self._factory_home = factory_home or Path.home() / ".factory"
+        self._snapshots: list[tuple[Path, Path]] = []
 
-    custom_models = payload.get("customModels")
-    if not isinstance(custom_models, list):
-        return ""
-    for model in custom_models:
-        if not isinstance(model, dict):
-            continue
-        model_id = str(model.get("id", "")).strip()
-        base_url = str(model.get("baseUrl", "")).casefold()
-        display_name = str(model.get("displayName", "")).casefold()
-        if (
-            model_id == DROID_CANONICAL_GLM_51_INTERNAL_MODEL
-            or "z.ai" in base_url
-            or "z.ai" in display_name
-        ):
-            api_key = str(model.get("apiKey", "")).strip()
-            if api_key:
-                return api_key
-    return ""
+    def prepare(self) -> None:
+        """Snapshot and move aside global skills and mcp.json."""
+        self._snapshots.clear()
+        self._factory_home.mkdir(parents=True, exist_ok=True)
+        for name in self._SCOPED_NAMES:
+            original = self._factory_home / name
+            if original.exists():
+                snapshot = self._unique_snapshot(original)
+                shutil.move(str(original), str(snapshot))
+                self._snapshots.append((snapshot, original))
 
+    def restore(self) -> None:
+        """Restore the snapshot, preserving any runtime-created paths as backups."""
+        try:
+            for snapshot, original in reversed(self._snapshots):
+                if not snapshot.exists():
+                    continue
+                if original.exists():
+                    backup = self._unique_runtime_backup(original)
+                    shutil.move(str(original), str(backup))
+                shutil.move(str(snapshot), str(original))
+        finally:
+            self._snapshots.clear()
 
-def default_zai_vision_mcp_server(api_key: str | None = None) -> dict[str, object]:
-    env = {"Z_AI_MODE": "ZAI"}
-    resolved_key = (api_key or _resolve_z_ai_api_key()).strip()
-    if resolved_key:
-        env["Z_AI_API_KEY"] = resolved_key
-    return {
-        "type": "stdio",
-        "command": "npx",
-        "args": ["-y", ZAI_VISION_MCP_PACKAGE],
-        "env": env,
-    }
+    def _unique_snapshot(self, original: Path) -> Path:
+        suffix = f".factory-fixer-snapshot-{uuid.uuid4().hex[:8]}"
+        return self._unique_path(original, suffix)
 
+    def _unique_runtime_backup(self, original: Path) -> Path:
+        suffix = f".factory-fixer-runtime-{uuid.uuid4().hex[:8]}"
+        return self._unique_path(original, suffix)
 
-def default_zai_web_search_mcp_server(api_key: str | None = None) -> dict[str, object]:
-    resolved_key = (api_key or _resolve_z_ai_api_key()).strip()
-    payload: dict[str, object] = {
-        "type": "http",
-        "url": ZAI_WEB_SEARCH_MCP_URL,
-        "disabled": False,
-    }
-    if resolved_key:
-        payload["headers"] = {"Authorization": f"Bearer {resolved_key}"}
-    return payload
+    def _unique_path(self, original: Path, suffix: str) -> Path:
+        candidate = original.parent / f"{original.name}{suffix}"
+        counter = 0
+        while candidate.exists():
+            candidate = original.parent / f"{original.name}{suffix}-{counter}"
+            counter += 1
+        return candidate
 
 
 class DroidBackendAdapter(BackendAdapter):
-    def __init__(self) -> None:
+    def __init__(self, factory_home: Path | None = None) -> None:
         entry = load_backend_entry("droid")
         self.descriptor = BackendDescriptor(
             name="droid",
@@ -142,6 +149,32 @@ class DroidBackendAdapter(BackendAdapter):
         )
         self.command = "droid"
         self.supports_resume = True
+        self._manifest = self._load_manifest()
+        self._scope_manager = _DroidScopeManager(factory_home=factory_home)
+
+    def _load_manifest(self) -> ProviderManifest | None:
+        try:
+            return load_manifest(_manifest_path())
+        except Exception:
+            return None
+
+    def _internal_model(self, model: str | None) -> str:
+        public_model = normalize_droid_model_alias(model)
+        if self._manifest is not None:
+            internal = self._manifest.models.internal_id_map.get(public_model)
+            if internal:
+                return internal
+        return DROID_INTERNAL_MODEL_IDS.get(public_model, public_model)
+
+    def _interactive_approve_flags(self, prefs: Any) -> list[str]:
+        if self._manifest is not None and bool(getattr(prefs, "auto_approve", False)):
+            return list(self._manifest.permissions.interactive_auto_approve_flags)
+        return []
+
+    def _headless_approve_flags(self) -> list[str]:
+        if self._manifest is not None:
+            return list(self._manifest.permissions.headless_auto_approve_flags)
+        return ["--skip-permissions-unsafe"]
 
     def normalize_model(self, model: str | None) -> str:
         candidate = normalize_droid_model_alias(model)
@@ -163,9 +196,7 @@ class DroidBackendAdapter(BackendAdapter):
         return []
 
     def build_interactive_execution_args(self, prefs: Any) -> list[str]:
-        # Interactive mode does not support --auto / -m flags.
-        # Instead, autonomy and model are set via --settings merge.
-        return []
+        return self._interactive_approve_flags(prefs)
 
     def _write_launch_settings(
         self,
@@ -174,12 +205,10 @@ class DroidBackendAdapter(BackendAdapter):
     ) -> Path:
         """Write a temporary settings file for interactive launch."""
         settings: dict[str, object] = {}
-        model = droid_internal_model_id(str(getattr(selection, "model", "") or "").strip() or self.default_model)
+        model = self._internal_model(str(getattr(selection, "model", "") or "").strip() or None)
         reasoning = self._resolve_reasoning(str(getattr(selection, "reasoning_effort", "") or ""))
         settings["model"] = model
         settings["reasoningEffort"] = reasoning
-        auto = bool(getattr(prefs, "dangerous_sandbox", False)) and bool(getattr(prefs, "auto_approve", False))
-        settings["autonomyMode"] = "auto-high" if auto else "normal"
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", prefix="droid-wire-", delete=False,
         )
@@ -193,9 +222,14 @@ class DroidBackendAdapter(BackendAdapter):
         selection: Any,
         prefs: Any,
     ) -> list[str]:
-        """Build the command prefix with --settings for interactive mode."""
+        """Build the command prefix with --auto and --settings for interactive mode."""
         settings_path = self._write_launch_settings(selection, prefs)
-        return [self.command, "--settings", str(settings_path)]
+        return [
+            self.command,
+            *self._interactive_approve_flags(prefs),
+            "--settings",
+            str(settings_path),
+        ]
 
     def build_mcp_flags(
         self,
@@ -238,14 +272,27 @@ class DroidBackendAdapter(BackendAdapter):
         prompt: str,
     ) -> list[str]:
         del selected, available
-        command = [self.command, "exec", "--skip-permissions-unsafe"]
-        resolved_model = droid_internal_model_id(self.normalize_model(model))
+        command = [self.command, "exec", *self._headless_approve_flags()]
+        resolved_model = self._internal_model(self.normalize_model(model))
         resolved_reasoning = self._resolve_reasoning(reasoning)
         command.extend(["-m", resolved_model, "-r", resolved_reasoning])
         command.extend(["--output-format", "json"])
         if prompt.strip():
             command.append(prompt)
         return command
+
+    def prepare_scope(self, cwd: Path | None = None) -> Path | None:
+        """Snapshot and move aside global ~/.factory skills and mcp.json.
+
+        Droid does not honor a scoped factory home, so this returns ``None``.
+        The launcher must call :meth:`restore_scope` in a ``finally`` block.
+        """
+        self._scope_manager.prepare()
+        return None
+
+    def restore_scope(self) -> None:
+        """Restore the global ~/.factory snapshot."""
+        self._scope_manager.restore()
 
     def ensure_runtime_files(
         self,
@@ -281,10 +328,8 @@ class DroidBackendAdapter(BackendAdapter):
             if server_payload.get("type") == "http" and not server_payload.get("url"):
                 continue
             mcp_servers[name] = server_payload
-        mcp_servers.setdefault(ZAI_VISION_MCP_SERVER_NAME, default_zai_vision_mcp_server())
-        mcp_servers.setdefault(ZAI_WEB_SEARCH_MCP_SERVER_NAME, default_zai_web_search_mcp_server())
 
-        payload["model"] = droid_internal_model_id(str(getattr(selection, "model", "") or "").strip() or self.default_model)
+        payload["model"] = self._internal_model(str(getattr(selection, "model", "") or "").strip() or None)
         payload["reasoningEffort"] = self._resolve_reasoning(str(getattr(selection, "reasoning_effort", "") or ""))
         session_defaults = payload.get("sessionDefaultSettings")
         if isinstance(session_defaults, dict):

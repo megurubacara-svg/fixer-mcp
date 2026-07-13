@@ -1,0 +1,73 @@
+{
+  "provider": "codex",
+  "label": "Codex CLI",
+  "description": "OpenAI Codex CLI reference provider for the Fixer MCP provider-adapter abstraction.",
+  "models": {
+    "options": [
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex",
+      "gpt-5.3-codex-spark",
+      "gpt-5.2"
+    ],
+    "default": "gpt-5.6-luna",
+    "internal_id_map": {
+      "gpt-5.6-sol": "gpt-5.6-sol",
+      "gpt-5.6-terra": "gpt-5.6-terra",
+      "gpt-5.6-luna": "gpt-5.6-luna",
+      "gpt-5.5": "gpt-5.5",
+      "gpt-5.4": "gpt-5.4",
+      "gpt-5.4-mini": "gpt-5.4-mini",
+      "gpt-5.3-codex": "gpt-5.3-codex",
+      "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+      "gpt-5.2": "gpt-5.2"
+    },
+    "byok": false,
+    "auth": "api_key",
+    "api_key_env": "CODEX_API_KEY"
+  },
+  "reasoning": {
+    "options": ["low", "medium", "high", "xhigh"],
+    "default": "xhigh",
+    "pass_mechanism": "config-key",
+    "flag_or_key": "model_reasoning_effort"
+  },
+  "skills": {
+    "inject_dir": ".agents/skills",
+    "scope_strategy": "none",
+    "scope_flags": []
+  },
+  "mcp": {
+    "config_format": "codex-c-overrides",
+    "scope_strategy": "enumerate-disable",
+    "scope_flags": [
+      "-c",
+      "mcp_servers.<n>.enabled=false",
+      "--disable",
+      "apps"
+    ]
+  },
+  "tool_registration": "native",
+  "permissions": {
+    "interactive_auto_approve_flags": ["--ask-for-approval", "never"],
+    "headless_auto_approve_flags": [
+      "--ask-for-approval",
+      "never",
+      "--dangerously-bypass-approvals-and-sandbox"
+    ]
+  },
+  "operator_questions": {
+    "supported": false,
+    "headless_auto_approve_dismisses": false
+  },
+  "launch": {
+    "interactive_cmd_template": "codex [prompt]",
+    "headless_cmd_template": "codex exec --skip-git-repo-check [prompt]",
+    "resume_interactive": "codex fork [external_session_id]",
+    "resume_headless": "codex exec resume [external_session_id]"
+  }
+}

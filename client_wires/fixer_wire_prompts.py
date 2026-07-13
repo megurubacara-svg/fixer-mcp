@@ -1,4 +1,13 @@
-"""Prompt and MCP guidance builders for the Fixer wire launcher."""
+"""Prompt and MCP guidance builders for the Fixer wire launcher.
+
+Bootstrap design (2026-06-14): prompts are MINIMAL, exactly like the codex flow.
+We do NOT inject MCP tool-naming guidance or "list your tools first" instructions
+of any kind — the MCP server is mounted and the agent calls its tools directly,
+the same way it does under codex. Adding tool-access prose only confused droid
+(it started listing connectors instead of calling the mounted tools). Skill
+scoping and MCP-server scoping are handled by the launch/adapter layer, not by
+prompt instructions.
+"""
 
 from __future__ import annotations
 
@@ -112,9 +121,7 @@ def _build_droid_netrunner_prompt(
             "Use Netrunner separate-terminal mode.",
             f"Run the initialization checklist for session `{session_id}`, then report status.",
             f"Assigned MCPs: {mcp_text}.",
-            "Droid MCP note: use exact Fixer MCP tool ids `fixer_mcp___assume_role`, `fixer_mcp___checkout_task`, `fixer_mcp___log_netrunner_progress`, `fixer_mcp___get_attached_project_docs`, and `fixer_mcp___get_session_mcp_servers`.",
-            "After checkout, call `fixer_mcp___log_netrunner_progress` with `log_type=\"started\"`; use only `started`, `progress`, `blocked`, `workaround`, or `completed`.",
-            "Do not stop with an MCP-not-mounted report while Droid shows the assigned MCPs are connected.",
+            "After checkout, call `fixer_mcp.log_netrunner_progress` with `log_type=\"started\"`; use only `started`, `progress`, `blocked`, `workaround`, or `completed`.",
         ]
     )
 
@@ -137,16 +144,10 @@ def _build_droid_mcp_tool_guidance_block(
     *,
     normalize_names: Callable[[Sequence[str]], list[str]] | None = None,
 ) -> str:
-    normalize_names = normalize_names or _normalize_names
-    selected = normalize_names(mcp_names)
-    server_text = ", ".join(selected) if selected else "none"
-    lines = [
-        "Droid MCP tool guidance:",
-        f"- Selected MCP servers for this Droid launch: {server_text}.",
-        "- Use exact Fixer MCP tool ids in the form `fixer_mcp___<tool>`, for example `fixer_mcp___assume_role`.",
-        "- Do not stop with an MCP-not-mounted report while Droid shows the selected MCP servers are connected.",
-    ]
-    return "\n".join(lines)
+    # Deliberately empty: droid (like codex) calls mounted MCP tools directly,
+    # with no extra prose. Retained as a stable symbol for callers/tests.
+    del mcp_names, normalize_names
+    return ""
 
 
 def _append_droid_mcp_tool_guidance(
@@ -157,16 +158,9 @@ def _append_droid_mcp_tool_guidance(
     backend_normalizer: Callable[[str], str] | None = None,
     droid_mcp_tool_guidance_block: Callable[[Sequence[str]], str] | None = None,
 ) -> str:
-    backend_normalizer = backend_normalizer or normalize_backend_name
-    droid_mcp_tool_guidance_block = (
-        droid_mcp_tool_guidance_block or _build_droid_mcp_tool_guidance_block
-    )
-    if backend_normalizer(backend) != "droid":
-        return prompt
-    guidance = droid_mcp_tool_guidance_block(mcp_names)
-    if not prompt.strip():
-        return guidance
-    return "\n\n".join([prompt.rstrip(), guidance])
+    # No-op now: we no longer append any MCP tool guidance for any backend.
+    del backend, mcp_names, backend_normalizer, droid_mcp_tool_guidance_block
+    return prompt
 
 
 def _build_mcp_how_to_map(

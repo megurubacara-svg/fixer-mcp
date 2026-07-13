@@ -67,6 +67,7 @@ def _bind_locked_role_to_server_env(
     selected_servers: dict[str, dict[str, object]],
     *,
     role: str,
+    project_cwd: Path | None = None,
 ) -> dict[str, dict[str, object]]:
     fixer_spec = selected_servers.get(FORCED_MCP_SERVER)
     if fixer_spec is None:
@@ -81,6 +82,9 @@ def _bind_locked_role_to_server_env(
     existing_env = updated_spec.get("env")
     merged_env = dict(existing_env) if isinstance(existing_env, dict) else {}
     merged_env[FIXER_MCP_LOCKED_ROLE_ENV] = normalized_role
+    if normalized_role == "fixer" and project_cwd is not None:
+        merged_env[FIXER_MCP_DEFAULT_ROLE_ENV] = "fixer"
+        merged_env[FIXER_MCP_DEFAULT_CWD_ENV] = str(project_cwd.resolve())
     updated_spec["env"] = merged_env
     updated_servers[FORCED_MCP_SERVER] = updated_spec
     return updated_servers

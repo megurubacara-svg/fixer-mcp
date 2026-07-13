@@ -39,8 +39,8 @@ This is still a normal locked `fixer` role internally, but it is bound to an int
 
 ## Worker Model Policy
 
-For Netrunners:
-- default model: `gpt-5.5`
-- default reasoning effort: `high`
-- use `gpt-5.4-mini` only for explicitly trivial, tightly bounded, low-risk chores
-- use `xhigh` only for unusually difficult debugging, architecture, ambiguous investigation, or multi-source research verification
+For Netrunner workers, choose:
+- simplest tasks: `codex` + `gpt-5.6-luna` + `high`
+- medium-complexity tasks: `codex` + `gpt-5.6-terra` + `high`
+- complex tasks: `codex` + `gpt-5.6-sol` + `medium`
+- hardest tasks: `codex` + `gpt-5.6-sol` + `xhigh`

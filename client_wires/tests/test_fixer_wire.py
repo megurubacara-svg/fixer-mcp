@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -24,12 +25,7 @@ from client_wires.backends.base import (
 )
 from client_wires.backends.claude_adapter import ClaudeCodeBackendAdapter
 from client_wires.backends.codex_adapter import CodexBackendAdapter
-from client_wires.backends.droid_adapter import (
-    DroidBackendAdapter,
-    ZAI_VISION_MCP_SERVER_NAME,
-    ZAI_WEB_SEARCH_MCP_SERVER_NAME,
-    ZAI_WEB_SEARCH_MCP_URL,
-)
+from client_wires.backends.droid_adapter import DroidBackendAdapter
 from client_wires.backends.junie_adapter import JunieBackendAdapter
 
 
@@ -86,6 +82,83 @@ class SkillMaterializationPruningTests(unittest.TestCase):
                 self.assertTrue((unknown_dir / "SKILL.md").is_file())
                 self.assertTrue((global_retired_dir / "SKILL.md").is_file())
                 self.assertTrue((skill_root / "init-fixer" / "SKILL.md").is_file())
+
+
+class NetrunnerWorkerModelPolicyTests(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parents[2]
+    POLICY_LINES = (
+        "- simplest tasks: `codex` + `gpt-5.6-luna` + `high`",
+        "- medium-complexity tasks: `codex` + `gpt-5.6-terra` + `high`",
+        "- complex tasks: `codex` + `gpt-5.6-sol` + `medium`",
+        "- hardest tasks: `codex` + `gpt-5.6-sol` + `xhigh`",
+    )
+    ROLES = ("init-fixer", "init-unattached-fixer", "init-overseer")
+    MATERIALIZERS = (
+        (".factory/skills", materialize_factory_skills),
+        (".claude/skills", materialize_claude_workspace_skills),
+        (".junie/fixer-runtime/skills", materialize_junie_workspace_skills),
+    )
+    POLICY_PATTERN = re.compile(
+        r"^- (?:simplest tasks|medium-complexity tasks|complex tasks|hardest tasks): .+$",
+        re.MULTILINE,
+    )
+
+    def test_exact_four_tier_policy_is_synchronized(self) -> None:
+        canonical_paths = [
+            self.ROOT / ".agents/skills" / role / "SKILL.md"
+            for role in self.ROLES
+        ]
+        canonical_paths.append(self.ROOT / "client_wires/README.md")
+        canonical_contents = {
+            path: path.read_text(encoding="utf-8") for path in canonical_paths
+        }
+
+        for path, content in canonical_contents.items():
+            with self.subTest(path=path.relative_to(self.ROOT)):
+                self._assert_policy_content(content)
+
+        canonical_role_contents = {
+            role: canonical_contents[self.ROOT / ".agents/skills" / role / "SKILL.md"]
+            for role in self.ROLES
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary_root = Path(tmp)
+            for relative_root, materialize in self.MATERIALIZERS:
+                live_paths = [
+                    self.ROOT / relative_root / role / "SKILL.md" for role in self.ROLES
+                ]
+                existing_live_paths = [path for path in live_paths if path.is_file()]
+
+                if existing_live_paths:
+                    self.assertEqual(
+                        len(existing_live_paths),
+                        len(self.ROLES),
+                        f"partial materialized skill root: {relative_root}",
+                    )
+                    materialized_paths = existing_live_paths
+                else:
+                    materialize(temporary_root, self.ROLES)
+                    materialized_paths = [
+                        temporary_root / relative_root / role / "SKILL.md"
+                        for role in self.ROLES
+                    ]
+
+                for role, path in zip(self.ROLES, materialized_paths):
+                    with self.subTest(root=relative_root, role=role):
+                        content = path.read_text(encoding="utf-8")
+                        self._assert_policy_content(content)
+                        self.assertEqual(content, canonical_role_contents[role])
+
+    def _assert_policy_content(self, content: str) -> None:
+        self.assertIn("netrunner worker", content.lower())
+        self.assertEqual(tuple(self.POLICY_PATTERN.findall(content)), self.POLICY_LINES)
+        self.assertNotIn(
+            "- hardest tasks: `codex` + `gpt-5.6-luna` + `xhigh`",
+            content,
+        )
+        self.assertNotIn("default reasoning effort: `xhigh`", content)
+        self.assertNotIn("- use `gpt-5.6-luna` + `xhigh`", content)
+        self.assertNotIn("- use `gpt-5.6-sol` + `xhigh`", content)
 
 
 class FixerMcpAutobuildTests(unittest.TestCase):
@@ -408,7 +481,8 @@ class McpPickerAndPromptTests(unittest.TestCase):
         )
 
         self.assertIn("Activate skill `$run-manual-acceptance-netrunner` immediately.", prompt)
-        self.assertIn("fixer_mcp___checkout_task", prompt)
+        self.assertIn("Assigned MCPs: fixer_mcp.", prompt)
+        self.assertNotIn("FIXER MCP TOOL ACCESS", prompt)
 
     def test_build_netrunner_prompt_includes_standard_web_stack_guidance(self) -> None:
         prompt = fixer_wire._build_netrunner_prompt(
@@ -439,12 +513,9 @@ class McpPickerAndPromptTests(unittest.TestCase):
             mcp_names=["fixer_mcp", "playwright"],
         )
 
-        self.assertIn("Droid MCP tool guidance:", prompt)
-        self.assertIn("Selected MCP servers for this Droid launch: fixer_mcp, playwright.", prompt)
-        self.assertNotIn("ToolSearch", prompt)
-        self.assertIn("fixer_mcp___assume_role", prompt)
-        self.assertIn("fixer_mcp___<tool>", prompt)
-        self.assertIn("Do not stop with an MCP-not-mounted report", prompt)
+        self.assertEqual(prompt, "Start")
+        self.assertNotIn("FIXER MCP TOOL ACCESS", prompt)
+        self.assertNotIn("fixer_mcp___", prompt)
         self.assertNotIn("mcp_fixer_mcp_assume_role", prompt)
         self.assertNotIn("mandatory Droid MCP warm-up", prompt)
 
@@ -465,8 +536,8 @@ class McpPickerAndPromptTests(unittest.TestCase):
 
         self.assertIn("Run the initialization checklist for session `119`", prompt)
         self.assertIn("Assigned MCPs: chrome-devtools, fixer_mcp, playwright.", prompt)
-        self.assertIn("fixer_mcp___assume_role", prompt)
-        self.assertIn("fixer_mcp___checkout_task", prompt)
+        self.assertNotIn("fixer_mcp___", prompt)
+        self.assertNotIn("FIXER MCP TOOL ACCESS", prompt)
         self.assertNotIn("Attached MCP how-to guidance:", prompt)
         self.assertNotIn("Standard web stack guidance:", prompt)
         self.assertNotIn("mcp_fixer_mcp_", prompt)
@@ -743,6 +814,8 @@ cwd = "./frontend"
         config_loader = _fake_codex_config_loader_module(
             global_servers={"sqlite": {"command": "sqlite3"}},
         )
+        runtime_module = types.ModuleType("client_wires.codex_compat.runtime")
+        runtime_module._ensure_sqlite_scaffold = lambda _cwd: None
         codex_pro_package = types.ModuleType("client_wires.codex_compat")
         codex_pro_package.main = main_module
         codex_pro_package.config_loader = config_loader
@@ -754,6 +827,7 @@ cwd = "./frontend"
                     "client_wires.codex_compat": codex_pro_package,
                     "client_wires.codex_compat.llm": main_module,
                     "client_wires.codex_compat.config": config_loader,
+                    "client_wires.codex_compat.runtime": runtime_module,
                 },
             ),
             patch.object(fixer_wire, "_inject_research_query_server", side_effect=lambda servers, _cwd: servers),
@@ -971,7 +1045,26 @@ class _FakeAdapter:
 class BackendCatalogTests(unittest.TestCase):
     def test_available_backend_descriptors_include_claude(self) -> None:
         backend_names = [descriptor.name for descriptor in fixer_wire.available_backend_descriptors()]
-        self.assertEqual(backend_names, ["codex", "droid", "claude", "antigravity", "junie"])
+        self.assertEqual(backend_names, ["codex", "droid", "claude", "antigravity", "junie", "kimi-code"])
+
+    def test_codex_catalog_exposes_gpt_56_family_with_luna_default(self) -> None:
+        descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "codex")
+        self.assertEqual(descriptor.default_model, "gpt-5.6-luna")
+        self.assertEqual(descriptor.default_reasoning, "xhigh")
+        self.assertEqual(
+            descriptor.model_options,
+            (
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "gpt-5.4",
+                "gpt-5.4-mini",
+                "gpt-5.3-codex",
+                "gpt-5.3-codex-spark",
+                "gpt-5.2",
+            ),
+        )
 
     def test_droid_catalog_hides_legacy_qwen_model(self) -> None:
         descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "droid")
@@ -983,24 +1076,24 @@ class BackendCatalogTests(unittest.TestCase):
 
     def test_droid_catalog_rejects_legacy_preview_qwen_model(self) -> None:
         descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "droid")
-        with self.assertRaisesRegex(RuntimeError, "Supported models: kimi-k2.6, glm-5.1"):
+        with self.assertRaisesRegex(RuntimeError, "Supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1"):
             fixer_wire._normalize_backend_model(descriptor, "custom:qwen/qwen3.6-plus-preview:free")
 
     def test_droid_catalog_rejects_legacy_raw_qwen_model(self) -> None:
         descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "droid")
-        with self.assertRaisesRegex(RuntimeError, "Supported models: kimi-k2.6, glm-5.1"):
+        with self.assertRaisesRegex(RuntimeError, "Supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1"):
             fixer_wire._normalize_backend_model(descriptor, "custom:qwen/qwen3.6-plus:free")
 
     def test_droid_catalog_rejects_raw_owl_model(self) -> None:
         descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "droid")
-        with self.assertRaisesRegex(RuntimeError, "Supported models: kimi-k2.6, glm-5.1"):
+        with self.assertRaisesRegex(RuntimeError, "Supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1"):
             fixer_wire._normalize_backend_model(descriptor, "openrouter/owl-alpha")
 
     def test_droid_catalog_migrates_broken_glm_51_model(self) -> None:
         descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "droid")
         self.assertEqual(descriptor.default_model, "kimi-k2.6")
         self.assertEqual(descriptor.default_reasoning, "high")
-        self.assertEqual(descriptor.model_options, ("kimi-k2.6", "glm-5.1"))
+        self.assertEqual(descriptor.model_options, ("kimi-k2.6", "kimi-k2.7-code", "glm-5.1"))
         self.assertEqual(
             fixer_wire._normalize_backend_model(descriptor, "kimi"),
             "kimi-k2.6",
@@ -1100,8 +1193,9 @@ class BackendCatalogTests(unittest.TestCase):
         self.assertEqual(fixer_wire._backend_descriptor("agy").name, "antigravity")
         self.assertEqual(descriptors["antigravity"].default_model, "default")
         self.assertEqual(descriptors["antigravity"].default_reasoning, "default")
-        self.assertIn("Gemini 3.5 Flash (High)", descriptors["antigravity"].model_options)
-        self.assertIn("Claude Sonnet 4.6 (Thinking)", descriptors["antigravity"].model_options)
+        self.assertIn("Gemini 3.5 Flash", descriptors["antigravity"].model_options)
+        self.assertIn("Claude Sonnet 4.6", descriptors["antigravity"].model_options)
+        self.assertIn("high", descriptors["antigravity"].reasoning_options)
 
     def test_junie_backend_descriptor_exposes_droid_public_aliases(self) -> None:
         descriptors = {item.name: item for item in fixer_wire.available_backend_descriptors()}
@@ -1109,7 +1203,7 @@ class BackendCatalogTests(unittest.TestCase):
         self.assertIn("junie", descriptors)
         self.assertEqual(descriptors["junie"].default_model, "kimi-k2.6")
         self.assertEqual(descriptors["junie"].default_reasoning, "default")
-        self.assertEqual(descriptors["junie"].model_options, ("kimi-k2.6", "glm-5.1"))
+        self.assertEqual(descriptors["junie"].model_options, ("kimi-k2.6", "kimi-k2.7-code", "glm-5.1"))
         self.assertEqual(descriptors["junie"].reasoning_options, ("default",))
 
     def test_droid_resume_command_uses_short_session_flag(self) -> None:
@@ -1122,9 +1216,14 @@ class BackendCatalogTests(unittest.TestCase):
         prefs = types.SimpleNamespace(dangerous_sandbox=True, auto_approve=True)
         self.assertEqual(adapter.build_execution_args(prefs), [])
 
-    def test_droid_adapter_omits_no_confirmation_flag_for_interactive_launches(self) -> None:
+    def test_droid_adapter_uses_auto_high_for_interactive_launches(self) -> None:
         adapter = DroidBackendAdapter()
         prefs = types.SimpleNamespace(dangerous_sandbox=True, auto_approve=True)
+        self.assertEqual(adapter.build_interactive_execution_args(prefs), ["--auto", "high"])
+
+    def test_droid_adapter_interactive_approve_flags_require_auto_approve(self) -> None:
+        adapter = DroidBackendAdapter()
+        prefs = types.SimpleNamespace(dangerous_sandbox=True, auto_approve=False)
         self.assertEqual(adapter.build_interactive_execution_args(prefs), [])
 
     def test_droid_adapter_builds_headless_autonomous_command_with_custom_kimi_default_model(self) -> None:
@@ -1233,7 +1332,7 @@ class BackendCatalogTests(unittest.TestCase):
 
         self.assertEqual(
             adapter.build_prompt_args("Activate skill `$init-fixer` immediately.\nRun init."),
-            ["--prompt-interactive", "Use the `init-fixer` skill immediately.\nRun init."],
+            ["--prompt-interactive", "/init-fixer\nRun init."],
         )
 
     def test_antigravity_adapter_builds_interactive_model_args_from_observed_agy_models(self) -> None:
@@ -1241,6 +1340,83 @@ class BackendCatalogTests(unittest.TestCase):
         selection = types.SimpleNamespace(model="Gemini 3.5 Flash (High)", reasoning_effort="default")
 
         self.assertEqual(adapter.build_llm_args(selection), ["--model", "Gemini 3.5 Flash (High)"])
+
+    def test_antigravity_adapter_maps_base_gemini_model_plus_reasoning_to_cli_model(self) -> None:
+        adapter = AntigravityBackendAdapter()
+
+        self.assertEqual(adapter._build_model_args("Gemini 3.5 Flash", "high"), ["--model", "Gemini 3.5 Flash (High)"])
+        self.assertEqual(adapter._build_model_args("gemini-3.5-flash", "low"), ["--model", "Gemini 3.5 Flash (Low)"])
+        self.assertEqual(adapter._build_model_args("Gemini 3.1 Pro", "high"), ["--model", "Gemini 3.1 Pro (High)"])
+
+    def test_antigravity_persisted_selection_keeps_fixer_model_reasoning_contract(self) -> None:
+        with sqlite3.connect(":memory:") as conn:
+            conn.executescript(
+                """
+                CREATE TABLE session (
+                    id INTEGER PRIMARY KEY,
+                    cli_backend TEXT NOT NULL,
+                    cli_model TEXT NOT NULL,
+                    cli_reasoning TEXT NOT NULL
+                );
+                INSERT INTO session (id, cli_backend, cli_model, cli_reasoning)
+                VALUES (41, '', '', '');
+                """
+            )
+            session_row = fixer_wire.SessionRow(
+                session_id=41,
+                global_session_id=41,
+                task_description="Agy selection",
+                status="pending",
+            )
+            selection = fixer_wire.SessionLaunchSelection(
+                backend="agy",
+                model="gemini-3.5-flash",
+                reasoning="High",
+            )
+
+            resolved = fixer_wire._persist_session_launch_selection(conn, session_row, selection)
+            stored = conn.execute("SELECT cli_backend, cli_model, cli_reasoning FROM session WHERE id = 41").fetchone()
+
+        self.assertEqual(resolved, fixer_wire.SessionLaunchSelection("antigravity", "Gemini 3.5 Flash", "high"))
+        self.assertEqual(stored, ("antigravity", "Gemini 3.5 Flash", "high"))
+
+    def test_antigravity_persisted_selection_canonicalizes_legacy_cli_model_label(self) -> None:
+        with sqlite3.connect(":memory:") as conn:
+            conn.executescript(
+                """
+                CREATE TABLE session (
+                    id INTEGER PRIMARY KEY,
+                    cli_backend TEXT NOT NULL,
+                    cli_model TEXT NOT NULL,
+                    cli_reasoning TEXT NOT NULL
+                );
+                INSERT INTO session (id, cli_backend, cli_model, cli_reasoning)
+                VALUES (42, '', '', '');
+                """
+            )
+            session_row = fixer_wire.SessionRow(
+                session_id=42,
+                global_session_id=42,
+                task_description="Agy legacy selection",
+                status="pending",
+            )
+            selection = fixer_wire.SessionLaunchSelection(
+                backend="agy",
+                model="Gemini 3.5 Flash (High)",
+                reasoning="default",
+            )
+
+            resolved = fixer_wire._persist_session_launch_selection(conn, session_row, selection)
+            stored = conn.execute("SELECT cli_backend, cli_model, cli_reasoning FROM session WHERE id = 42").fetchone()
+
+        self.assertEqual(resolved, fixer_wire.SessionLaunchSelection("antigravity", "Gemini 3.5 Flash", "high"))
+        self.assertEqual(stored, ("antigravity", "Gemini 3.5 Flash", "high"))
+
+    def test_antigravity_adapter_rejects_conflicting_embedded_and_requested_reasoning(self) -> None:
+        adapter = AntigravityBackendAdapter()
+
+        with self.assertRaisesRegex(RuntimeError, "conflicts"):
+            adapter._build_model_args("Gemini 3.5 Flash (High)", "low")
 
     def test_antigravity_adapter_builds_headless_prompt_command_with_model_flag(self) -> None:
         adapter = AntigravityBackendAdapter()
@@ -1271,7 +1447,7 @@ class BackendCatalogTests(unittest.TestCase):
                 "agy",
                 "--dangerously-skip-permissions",
                 "--print",
-                "Use the `run-manual-netrunner` skill immediately.\nUse headless mode.",
+                "/run-manual-netrunner\nUse headless mode.",
             ],
         )
 
@@ -1284,7 +1460,7 @@ class BackendCatalogTests(unittest.TestCase):
         adapter = AntigravityBackendAdapter()
         with self.assertRaisesRegex(RuntimeError, "Unsupported model"):
             adapter.build_headless_command(
-                model="gemini-3.5-flash",
+                model="not-a-real-antigravity-model",
                 reasoning="default",
                 selected={},
                 available={},
@@ -1505,11 +1681,26 @@ class AntigravityRuntimeMaterializationTests(unittest.TestCase):
             legacy_skill_file = cwd / ".agents" / "skills" / "init-fixer.md"
             legacy_skill_file.parent.mkdir(parents=True, exist_ok=True)
             legacy_skill_file.write_text("# legacy flat skill\n", encoding="utf-8")
+            user_mcp_path = cwd / "home" / ".gemini" / "config" / "mcp_config.json"
+            user_mcp_path.parent.mkdir(parents=True, exist_ok=True)
+            user_mcp_path.write_text(
+                json.dumps({"mcpServers": {"personal_tool": {"command": "/tmp/personal"}}}) + "\n",
+                encoding="utf-8",
+            )
 
-            with patch.dict(os.environ, {"CODEX_HOME": str(codex_home), "HOME": str(cwd / "home")}, clear=True):
+            with patch.dict(
+                os.environ,
+                {
+                    "CODEX_HOME": str(codex_home),
+                    "HOME": str(cwd / "home"),
+                    "FIXER_ANTIGRAVITY_MCP_CONFIG_PATH": str(user_mcp_path),
+                },
+                clear=True,
+            ):
                 adapter.ensure_runtime_files(cwd, selection, selected, available={})
 
             mcp_payload = json.loads((cwd / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+            user_mcp_payload = json.loads(user_mcp_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 mcp_payload,
                 {
@@ -1534,6 +1725,9 @@ class AntigravityRuntimeMaterializationTests(unittest.TestCase):
                     },
                 },
             )
+            self.assertEqual(user_mcp_payload["mcpServers"]["personal_tool"], {"command": "/tmp/personal"})
+            self.assertEqual(user_mcp_payload["mcpServers"]["fixer_mcp"], mcp_payload["mcpServers"]["fixer_mcp"])
+            self.assertEqual(user_mcp_payload["mcpServers"]["remote-search"], mcp_payload["mcpServers"]["remote-search"])
             self.assertTrue((cwd / ".agents" / "skills" / "init-fixer" / "SKILL.md").is_file())
             self.assertTrue((cwd / ".agents" / "skills" / "run-manual-netrunner" / "SKILL.md").is_file())
             self.assertTrue((cwd / ".agents" / "skills" / "complete-netrunner-session" / "SKILL.md").is_file())
@@ -1625,7 +1819,7 @@ class DroidRuntimeMaterializationTests(unittest.TestCase):
                 skill_dir = codex_home / "skills" / skill_name
                 skill_dir.mkdir(parents=True, exist_ok=True)
                 (skill_dir / "SKILL.md").write_text(f"# {skill_name}\n", encoding="utf-8")
-            selection = types.SimpleNamespace(model="gpt-5.4", reasoning_effort="medium")
+            selection = types.SimpleNamespace(model="kimi-k2.6", reasoning_effort="medium")
             selected = {
                 "fixer_mcp": {
                     "command": "/tmp/fixer_mcp",
@@ -1691,26 +1885,11 @@ class DroidRuntimeMaterializationTests(unittest.TestCase):
                             },
                             "type": "stdio",
                         },
-                        ZAI_VISION_MCP_SERVER_NAME: {
-                            "args": ["-y", "@z_ai/mcp-server"],
-                            "command": "npx",
-                            "env": {
-                                "Z_AI_API_KEY": "test-zai-key",
-                                "Z_AI_MODE": "ZAI",
-                            },
-                            "type": "stdio",
-                        },
-                        ZAI_WEB_SEARCH_MCP_SERVER_NAME: {
-                            "disabled": False,
-                            "headers": {"Authorization": "Bearer" + " test-zai-key"},
-                            "type": "http",
-                            "url": ZAI_WEB_SEARCH_MCP_URL,
-                        }
                     }
                 },
             )
             settings_payload = json.loads((cwd / ".factory" / "settings.json").read_text(encoding="utf-8"))
-            self.assertEqual(settings_payload["model"], "gpt-5.4")
+            self.assertEqual(settings_payload["model"], "custom:Kimi-K2.6-[Kimi]-0")
             self.assertEqual(settings_payload["reasoningEffort"], "medium")
             self.assertNotIn("model", settings_payload.get("sessionDefaultSettings", {}))
             self.assertNotIn("reasoningEffort", settings_payload.get("sessionDefaultSettings", {}))
@@ -1723,126 +1902,20 @@ class DroidRuntimeMaterializationTests(unittest.TestCase):
             self.assertTrue((cwd / ".factory" / "skills" / "run-netrunner-wave" / "SKILL.md").is_file())
             self.assertTrue((cwd / ".factory" / "skills" / "inspect-netrunner-transcript" / "SKILL.md").is_file())
 
-    def test_droid_adapter_preserves_explicit_zai_vision_mcp_server(self) -> None:
+    def test_droid_adapter_does_not_force_add_zai_servers(self) -> None:
         adapter = DroidBackendAdapter()
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)
-            selection = types.SimpleNamespace(model="gpt-5.4", reasoning_effort="medium")
-            selected = {
-                ZAI_VISION_MCP_SERVER_NAME: {
-                    "command": "/tmp/custom-zai",
-                    "args": ["--serve"],
-                    "env": {"Z_AI_API_KEY": "explicit-test-key", "Z_AI_MODE": "ZAI"},
-                }
-            }
+            selection = types.SimpleNamespace(model="kimi-k2.6", reasoning_effort="medium")
 
-            adapter.ensure_runtime_files(cwd, selection, selected, available={})
-
-            mcp_payload = json.loads((cwd / ".factory" / "mcp.json").read_text(encoding="utf-8"))
-
-        self.assertEqual(
-            mcp_payload["mcpServers"][ZAI_VISION_MCP_SERVER_NAME],
-            {
-                "args": ["--serve"],
-                "command": "/tmp/custom-zai",
-                "disabled": False,
-                "env": {"Z_AI_API_KEY": "explicit-test-key", "Z_AI_MODE": "ZAI"},
-                "type": "stdio",
-            },
-        )
-
-    def test_droid_adapter_preserves_explicit_zai_web_search_mcp_server(self) -> None:
-        adapter = DroidBackendAdapter()
-        with tempfile.TemporaryDirectory() as tmp:
-            cwd = Path(tmp)
-            selection = types.SimpleNamespace(model="gpt-5.4", reasoning_effort="medium")
-            selected = {
-                ZAI_WEB_SEARCH_MCP_SERVER_NAME: {
-                    "type": "http",
-                    "url": "https://example.test/custom-mcp",
-                    "headers": {"Authorization": "Bearer" + " explicit-test-key"},
-                }
-            }
-
-            adapter.ensure_runtime_files(cwd, selection, selected, available={})
-
-            mcp_payload = json.loads((cwd / ".factory" / "mcp.json").read_text(encoding="utf-8"))
-
-        self.assertEqual(
-            mcp_payload["mcpServers"][ZAI_WEB_SEARCH_MCP_SERVER_NAME],
-            {
-                "disabled": False,
-                "headers": {"Authorization": "Bearer" + " explicit-test-key"},
-                "type": "http",
-                "url": "https://example.test/custom-mcp",
-            },
-        )
-
-    def test_droid_adapter_does_not_read_real_zai_key_when_home_has_no_factory_settings(self) -> None:
-        adapter = DroidBackendAdapter()
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as fake_home:
-            cwd = Path(tmp)
-            selection = types.SimpleNamespace(model="gpt-5.4", reasoning_effort="medium")
-
-            with patch.dict(os.environ, {"HOME": fake_home}, clear=True):
+            with patch.dict(os.environ, {"Z_AI_API_KEY": "test-zai-key"}, clear=False):
                 adapter.ensure_runtime_files(cwd, selection, selected={}, available={})
 
             mcp_payload = json.loads((cwd / ".factory" / "mcp.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(
-            mcp_payload["mcpServers"][ZAI_VISION_MCP_SERVER_NAME],
-            {
-                "args": ["-y", "@z_ai/mcp-server"],
-                "command": "npx",
-                "env": {"Z_AI_MODE": "ZAI"},
-                "type": "stdio",
-            },
-        )
-        self.assertEqual(
-            mcp_payload["mcpServers"][ZAI_WEB_SEARCH_MCP_SERVER_NAME],
-            {
-                "disabled": False,
-                "type": "http",
-                "url": ZAI_WEB_SEARCH_MCP_URL,
-            },
-        )
-
-    def test_droid_adapter_reads_zai_key_from_factory_custom_model(self) -> None:
-        adapter = DroidBackendAdapter()
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as fake_home:
-            cwd = Path(tmp)
-            factory_dir = Path(fake_home) / ".factory"
-            factory_dir.mkdir()
-            (factory_dir / "settings.json").write_text(
-                json.dumps(
-                    {
-                        "customModels": [
-                            {
-                                "id": "custom:GLM-5.1-[Z.AI]-0",
-                                "baseUrl": "https://api.z.ai/api/coding/paas/v4",
-                                "apiKey": "settings-test-zai-key",
-                                "displayName": "GLM-5.1 [Z.AI]",
-                            }
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            selection = types.SimpleNamespace(model="gpt-5.4", reasoning_effort="medium")
-
-            with patch.dict(os.environ, {"HOME": fake_home}, clear=True):
-                adapter.ensure_runtime_files(cwd, selection, selected={}, available={})
-
-            mcp_payload = json.loads((cwd / ".factory" / "mcp.json").read_text(encoding="utf-8"))
-
-        self.assertEqual(
-            mcp_payload["mcpServers"][ZAI_VISION_MCP_SERVER_NAME]["env"],
-            {"Z_AI_API_KEY": "settings-test-zai-key", "Z_AI_MODE": "ZAI"},
-        )
-        self.assertEqual(
-            mcp_payload["mcpServers"][ZAI_WEB_SEARCH_MCP_SERVER_NAME]["headers"],
-            {"Authorization": "Bearer" + " settings-test-zai-key"},
-        )
+        self.assertEqual(mcp_payload["mcpServers"], {})
+        self.assertNotIn("zai-mcp-server", mcp_payload["mcpServers"])
+        self.assertNotIn("web-search-prime", mcp_payload["mcpServers"])
 
 
 class CodexBackendAdapterTests(unittest.TestCase):
@@ -1927,6 +2000,74 @@ class CodexBackendAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(flags, ["LOCKED=fixer", "DB=/tmp/fixer.db"])
+
+    def test_build_mcp_flags_adds_narrow_direct_fixer_gate(self) -> None:
+        captured: dict[str, object] = {}
+
+        class Inner:
+            command = "codex"
+            supports_resume = True
+
+            @staticmethod
+            def build_mcp_flags(selected: dict[str, object], available: dict[str, object]) -> list[str]:
+                captured["selected"] = selected
+                captured["available"] = available
+                return ["INNER_FLAGS"]
+
+            @staticmethod
+            def build_llm_args(_selection: object) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_execution_args(_prefs: object) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_prompt_args(_prompt: str) -> list[str]:
+                return []
+
+            @staticmethod
+            def prepare_env(_env: dict[str, str], _selection: object) -> None:
+                return None
+
+        adapter = CodexBackendAdapter(Inner())
+        flags = adapter.build_mcp_flags(
+            selected={
+                "fixer_mcp": {
+                    "command": "/tmp/fixer_mcp",
+                    "env": {
+                        "FIXER_DB_PATH": "/tmp/fixer.db",
+                        "FIXER_MCP_DEFAULT_CWD": "/tmp/project",
+                        "FIXER_MCP_DEFAULT_ROLE": "fixer",
+                        "FIXER_MCP_LOCKED_ROLE": "fixer",
+                    },
+                    "timeout": 21600,
+                    "tool_timeout_sec": 21600,
+                },
+            },
+            available={"fixer_mcp": {"command": "/stale/fixer_mcp"}},
+        )
+
+        selected = captured["selected"]
+        self.assertEqual(set(selected), {"fixer_mcp", "fixer_netrunner_gate"})  # type: ignore[arg-type]
+        gate = selected["fixer_netrunner_gate"]  # type: ignore[index]
+        self.assertEqual(gate["command"], "/tmp/fixer_mcp")
+        self.assertEqual(gate["timeout"], 21600)
+        self.assertEqual(gate["tool_timeout_sec"], 21600)
+        self.assertEqual(gate["env"]["FIXER_MCP_AUTO_AUTH"], "1")
+        self.assertEqual(gate["env"]["FIXER_MCP_TOOL_PROFILE"], "netrunner_gate")
+        self.assertEqual(
+            flags,
+            [
+                "INNER_FLAGS",
+                "-c",
+                'mcp_servers.fixer_netrunner_gate.enabled_tools=["launch_and_wait_netrunner","launch_netrunner_wave","wait_for_netrunner_wave"]',
+                "-c",
+                'mcp_servers.fixer_mcp.disabled_tools=["launch_and_wait_netrunner","launch_netrunner_wave","wait_for_netrunner_wave"]',
+                "-c",
+                'features.code_mode.direct_only_tool_namespaces=["mcp__fixer_netrunner_gate"]',
+            ],
+        )
 
 
 class FixerResumeUiTests(unittest.TestCase):

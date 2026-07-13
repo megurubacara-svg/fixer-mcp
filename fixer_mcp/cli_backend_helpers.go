@@ -37,10 +37,22 @@ func defaultCliModelForBackend(backend string) string {
 	if backend == "droid" || backend == "junie" {
 		return defaultDroidCliModel
 	}
+	if backend == "kimi-code" {
+		return defaultKimiCodeCliModel
+	}
 	return defaultCliModel
 }
 
 func defaultCliReasoningForBackend(backend string) string {
+	if backend == "droid" {
+		return defaultDroidCliReasoning
+	}
+	if backend == "antigravity" {
+		return defaultAntigravityReasoning
+	}
+	if backend == "kimi-code" {
+		return defaultKimiCodeReasoning
+	}
 	if backend == "junie" {
 		return defaultJunieCliReasoning
 	}
@@ -50,7 +62,7 @@ func defaultCliReasoningForBackend(backend string) string {
 func normalizeCliReasoning(backend string, raw string) string {
 	reasoning := strings.TrimSpace(raw)
 	if backend == "droid" && reasoning == "none" {
-		return defaultCliReasoning
+		return defaultDroidCliReasoning
 	}
 	return reasoning
 }
@@ -66,7 +78,7 @@ func validateCliModelForBackend(backend string, model string) error {
 	if _, ok := supportedDroidCliModels[trimmedModel]; ok {
 		return nil
 	}
-	return fmt.Errorf("unsupported %s model %q; supported models: kimi-k2.6, glm-5.1", backend, trimmedModel)
+	return fmt.Errorf("unsupported %s model %q; supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1", backend, trimmedModel)
 }
 
 func validateCliReasoningForBackend(backend string, reasoning string) error {

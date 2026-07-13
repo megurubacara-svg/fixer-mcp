@@ -31,12 +31,14 @@ This directory is more than a launch convenience layer. It is where the repo con
 - `manual separate-terminal`: use `$run-manual-netrunner` when the Architect wants to launch or resume the Netrunner personally in another terminal.
 - `review and closure`: use `$review-netrunner-session` when a completed session needs Fixer review, acceptance, rejection, or lifecycle closure.
 
-## Model Policy
+## Netrunner Worker Model Policy
 
-- Default model: `gpt-5.5`
-- Default reasoning effort: `high`
-- Use `gpt-5.4-mini` only for explicitly trivial, tightly bounded, low-risk chores
-- Escalate to `xhigh` only for unusually difficult debugging, architecture, or ambiguous investigation
+Choose the Netrunner worker configuration by task complexity:
+
+- simplest tasks: `codex` + `gpt-5.6-luna` + `high`
+- medium-complexity tasks: `codex` + `gpt-5.6-terra` + `high`
+- complex tasks: `codex` + `gpt-5.6-sol` + `medium`
+- hardest tasks: `codex` + `gpt-5.6-sol` + `xhigh`
 
 ## Fixer Wire
 
@@ -64,6 +66,8 @@ This directory is more than a launch convenience layer. It is where the repo con
   - `register-fixer` resolves the Fixer Codex session in this order: explicit `--fixer-session-id`, then `CODEX_THREAD_ID` / `CODEX_SESSION_ID` from the current shell, then history-based auto-detection.
   - `fixer_mcp.wait_for_netrunner_session` polls Fixer MCP session/proposal state and returns structured review-ready completion metadata.
   - `fixer_mcp.launch_and_wait_netrunner` composes both so an Architect-visible Fixer thread can stay in-place through MCP-sensitive worker completion.
+  - Codex Fixer launches mount a second `fixer_netrunner_gate` MCP namespace whose server-level surface contains only `launch_and_wait_netrunner`, `launch_netrunner_wave`, and `wait_for_netrunner_wave`. The primary `fixer_mcp` copy hides those duplicates, while `features.code_mode.direct_only_tool_namespaces` keeps blocking serial and wave orchestration as native calls for GPT-5.6 Code Mode models without exposing the full Fixer tool catalog directly.
+  - The gate process auto-authenticates only when it is simultaneously locked to `fixer`, bound to a registered project CWD, explicitly opted into auto-auth, and started with the `netrunner_gate` tool profile. Ordinary Fixer MCP processes retain normal `assume_role` authentication.
   - The repo-managed wire now forces the attached `fixer_mcp` server timeout floor to `21600s`, matching the long explicit wait window and avoiding the old accidental `600s` client cutoff on `launch_and_wait_netrunner`.
   - Claude Code launch materialization writes `.mcp.json` per-server `timeout` in milliseconds, using `per_tool_timeout_ms` first and otherwise converting the wire's second-based timeout fields.
   - The old parallel sidecar stubs are not canonical launcher surfaces. Future parallel Netrunner orchestration should use durable Fixer-owned messages/run-state and write-scope guardrails rather than reviving retired tool names.
@@ -78,8 +82,8 @@ This directory is more than a launch convenience layer. It is where the repo con
   - Resume picker lists prior Fixer Codex sessions with `started` and `updated` timestamps.
   - No MCP selection UI is shown for Fixer; `fixer_mcp` remains forced-attached.
   - Fixer launch uses `--sandbox danger-full-access` to preserve codex-pro style cross-cwd filesystem behavior.
-- Launch is blocked for unknown project cwd with explicit Fixer onboarding instructions (`register_project`), avoiding any direct DB insert fallback.
-  - Unknown cwd guidance is Fixer-only (`register_project`) and must not fall back to direct DB writes.
+- Fresh Fixer/Overseer launches ensure the current cwd is registered in the launcher DB before role startup.
+  - Unknown cwd onboarding happens through the launcher path, so normal role startup does not require a manual Overseer `register_project` call first.
 - Overseer UX:
   - Overseer launch also defaults to `--sandbox danger-full-access` unless an explicit sandbox flag is passed through.
 - Session resume:

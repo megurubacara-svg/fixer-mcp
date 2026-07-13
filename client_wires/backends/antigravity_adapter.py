@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -39,11 +41,57 @@ class AntigravityBackendAdapter(BackendAdapter):
         )
 
     def _build_model_args(self, model: str, reasoning: str) -> list[str]:
-        model = self.normalize_model(model)
-        self.normalize_reasoning(reasoning)
+        model = self._resolve_model_with_reasoning(model, reasoning)
         if model == "default":
             return []
         return ["--model", model]
+
+    def _resolve_model_with_reasoning(self, model: str | None, reasoning: str | None) -> str:
+        candidate = (model or "").strip() or self.default_model
+        requested_reasoning = (reasoning or "").strip().lower()
+        if requested_reasoning in ("", "default"):
+            requested_reasoning = ""
+
+        if candidate == "default":
+            return candidate
+
+        if candidate in self.model_options and candidate == "default":
+            return candidate
+
+        if candidate in _ANTIGRAVITY_CLI_MODEL_OPTIONS:
+            label = _antigravity_model_variant_label(candidate)
+            if requested_reasoning and label and requested_reasoning != label.lower():
+                raise RuntimeError(
+                    f"Antigravity model {candidate!r} already includes reasoning {label!r}, "
+                    f"which conflicts with requested reasoning {reasoning!r}."
+                )
+            return candidate
+
+        base_key = _antigravity_model_key(candidate)
+        variants = _antigravity_model_variants(_ANTIGRAVITY_CLI_MODEL_OPTIONS).get(base_key, {})
+        if not variants:
+            supported = ", ".join((*self.model_options, *_ANTIGRAVITY_CLI_MODEL_OPTIONS))
+            raise RuntimeError(
+                f"Unsupported model {candidate!r} for backend {self.name!r}. Supported models: {supported}"
+            )
+
+        if not requested_reasoning:
+            if len(variants) == 1:
+                return next(iter(variants.values()))
+            supported_reasoning = ", ".join(sorted(variants))
+            raise RuntimeError(
+                f"Antigravity model {candidate!r} requires reasoning to select a concrete CLI model. "
+                f"Supported reasoning values for this model: {supported_reasoning}."
+            )
+
+        resolved = variants.get(requested_reasoning)
+        if resolved is None:
+            supported_reasoning = ", ".join(sorted(variants))
+            raise RuntimeError(
+                f"Unsupported reasoning {reasoning!r} for Antigravity model {candidate!r}. "
+                f"Supported reasoning values for this model: {supported_reasoning}."
+            )
+        return resolved
 
     def build_execution_args(self, prefs: Any) -> list[str]:
         if bool(getattr(prefs, "dangerous_sandbox", False)) and bool(getattr(prefs, "auto_approve", False)):
@@ -102,6 +150,7 @@ class AntigravityBackendAdapter(BackendAdapter):
             json.dumps({"mcpServers": mcp_servers}, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        _merge_antigravity_user_mcp_config(mcp_servers)
         materialize_antigravity_workspace_skills(cwd, FIXER_ROLE_SKILL_NAMES)
 
     @staticmethod
@@ -114,10 +163,128 @@ class AntigravityBackendAdapter(BackendAdapter):
 
 
 _CODEX_SKILL_MARKER_RE = re.compile(r"^Activate skill `\$([a-z0-9][a-z0-9-]*)` immediately\.$")
+_ANTIGRAVITY_MODEL_VARIANT_RE = re.compile(r"^(?P<base>.+?) \((?P<label>[^)]+)\)$")
+_ANTIGRAVITY_CLI_MODEL_OPTIONS = (
+    "Gemini 3.5 Flash (Medium)",
+    "Gemini 3.5 Flash (High)",
+    "Gemini 3.5 Flash (Low)",
+    "Gemini 3.1 Pro (Low)",
+    "Gemini 3.1 Pro (High)",
+    "Claude Sonnet 4.6 (Thinking)",
+    "Claude Opus 4.6 (Thinking)",
+    "GPT-OSS 120B (Medium)",
+)
+_ANTIGRAVITY_MCP_CONFIG_PATH_ENV = "FIXER_ANTIGRAVITY_MCP_CONFIG_PATH"
+
+
+def _antigravity_user_mcp_config_path() -> Path:
+    override = os.environ.get(_ANTIGRAVITY_MCP_CONFIG_PATH_ENV, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".gemini" / "config" / "mcp_config.json"
+
+
+def _merge_antigravity_user_mcp_config(mcp_servers: Mapping[str, Mapping[str, object]]) -> None:
+    if not mcp_servers:
+        return
+    config_path = _antigravity_user_mcp_config_path()
+    payload = _read_json_object(config_path)
+    existing_raw = payload.get("mcpServers")
+    existing_servers: dict[str, object]
+    if isinstance(existing_raw, MutableMapping):
+        existing_servers = dict(existing_raw)
+    else:
+        existing_servers = {}
+    existing_servers.update({name: dict(server) for name, server in sorted(mcp_servers.items())})
+    payload["mcpServers"] = existing_servers
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _antigravity_model_key(model: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", model.lower())
+
+
+def normalize_antigravity_model_alias(model: str | None) -> str:
+    candidate = (model or "").strip()
+    if not candidate:
+        return ""
+    embedded = _antigravity_model_variant(candidate)
+    if embedded is not None:
+        return embedded[0]
+    bases = _antigravity_model_bases(_ANTIGRAVITY_CLI_MODEL_OPTIONS)
+    return bases.get(_antigravity_model_key(candidate), candidate)
+
+
+def normalize_antigravity_reasoning_alias(model: str | None, reasoning: str | None) -> str:
+    candidate = (reasoning or "").strip().lower()
+    if candidate and candidate != "default":
+        return candidate
+    embedded = _antigravity_model_variant(model or "")
+    if embedded is not None:
+        return embedded[1].lower()
+    return candidate or "default"
+
+
+def _antigravity_model_variant(model: str) -> tuple[str, str] | None:
+    candidate = model.strip()
+    if not candidate:
+        return None
+    for option in _ANTIGRAVITY_CLI_MODEL_OPTIONS:
+        if candidate != option and _antigravity_model_key(candidate) != _antigravity_model_key(option):
+            continue
+        match = _ANTIGRAVITY_MODEL_VARIANT_RE.match(option)
+        if match:
+            return match.group("base"), match.group("label")
+    return None
+
+
+def _antigravity_model_variant_label(model: str) -> str | None:
+    match = _ANTIGRAVITY_MODEL_VARIANT_RE.match(model)
+    if not match:
+        return None
+    return match.group("label")
+
+
+def _antigravity_model_bases(model_options: Sequence[str]) -> dict[str, str]:
+    bases: dict[str, str] = {}
+    for option in model_options:
+        match = _ANTIGRAVITY_MODEL_VARIANT_RE.match(option)
+        if not match:
+            continue
+        base = match.group("base")
+        bases.setdefault(_antigravity_model_key(base), base)
+    return bases
+
+
+def _antigravity_model_variants(model_options: Sequence[str]) -> dict[str, dict[str, str]]:
+    variants: dict[str, dict[str, str]] = {}
+    for option in model_options:
+        match = _ANTIGRAVITY_MODEL_VARIANT_RE.match(option)
+        if not match:
+            continue
+        base = match.group("base")
+        label = match.group("label").lower()
+        variants.setdefault(_antigravity_model_key(base), {})[label] = option
+    return variants
 
 
 def _antigravity_prompt_line(line: str) -> str:
     match = _CODEX_SKILL_MARKER_RE.match(line.strip())
     if match:
-        return f"Use the `{match.group(1)}` skill immediately."
+        return f"/{match.group(1)}"
     return line

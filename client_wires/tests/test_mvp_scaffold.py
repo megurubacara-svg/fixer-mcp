@@ -74,6 +74,11 @@ class MVPScaffoldExecutionTests(unittest.TestCase):
             self.assertIn("fixer --scaffold-mvp neuro_launch", readme)
             workflow = (spec.destination / "WORKFLOW.md").read_text(encoding="utf-8")
             self.assertIn("codex --config shell_environment_policy.inherit=all", workflow)
+            model_layer = (spec.destination / "llm_pipeline" / "codex_model_layer.yaml").read_text(encoding="utf-8")
+            self.assertIn("default_model: gpt-5.6-luna", model_layer)
+            self.assertIn("default_effort: xhigh", model_layer)
+            self.assertIn("- gpt-5.6-sol", model_layer)
+            self.assertIn("- gpt-5.6-terra", model_layer)
 
 
 class MVPScaffoldWireTests(unittest.TestCase):

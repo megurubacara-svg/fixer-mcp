@@ -33,11 +33,11 @@ class LaunchSupportOwnershipTests(unittest.TestCase):
         )
         fixer_wire_launch_support._prefer_fixed_model_for_role_presets(
             module,
-            fixer_wire_model="gpt-5.5",
-            fixer_wire_reasoning_effort="high",
+            fixer_wire_model="gpt-5.6-luna",
+            fixer_wire_reasoning_effort="xhigh",
         )
-        self.assertEqual(module.MODEL_DISPLAY_ORDER[0], "gpt-5.5")
-        self.assertEqual(module.MODEL_DEFAULT_EFFORT["gpt-5.5"], "high")
+        self.assertEqual(module.MODEL_DISPLAY_ORDER[0], "gpt-5.6-luna")
+        self.assertEqual(module.MODEL_DEFAULT_EFFORT["gpt-5.6-luna"], "xhigh")
 
     def test_select_fresh_launch_selection_accepts_claude_through_facade(self) -> None:
         selection = fixer_wire._select_fresh_launch_selection(

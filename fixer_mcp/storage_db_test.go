@@ -95,6 +95,26 @@ func TestInitDBProjectActivityOverviewSchemaIdempotent(t *testing.T) {
 	if logTableName != "netrunner_session_log" {
 		t.Fatalf("unexpected netrunner_session_log table name: %q", logTableName)
 	}
+
+	for _, tableName := range []string{"project_balance", "fixer_spend_authority", "balance_ledger"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", tableName).Scan(&count); err != nil {
+			t.Fatalf("inspect %s table: %v", tableName, err)
+		}
+		if count != 1 {
+			t.Fatalf("expected %s table after repeated initDB, got %d", tableName, count)
+		}
+	}
+
+	for _, indexName := range []string{"project_balance_project_unique_idx", "fixer_spend_authority_project_unique_idx", "balance_ledger_project_id_idx", "balance_ledger_kind_idx"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?", indexName).Scan(&count); err != nil {
+			t.Fatalf("inspect %s index: %v", indexName, err)
+		}
+		if count != 1 {
+			t.Fatalf("expected %s after repeated initDB, got %d", indexName, count)
+		}
+	}
 }
 
 func TestInitDBMcpServerMarketplaceMigrationIdempotent(t *testing.T) {

@@ -8,17 +8,18 @@
       "label": "Google Antigravity CLI",
       "model_options": [
         "default",
-        "Gemini 3.5 Flash (Medium)",
-        "Gemini 3.5 Flash (High)",
-        "Gemini 3.5 Flash (Low)",
-        "Gemini 3.1 Pro (Low)",
-        "Gemini 3.1 Pro (High)",
-        "Claude Sonnet 4.6 (Thinking)",
-        "Claude Opus 4.6 (Thinking)",
-        "GPT-OSS 120B (Medium)"
+        "Gemini 3.5 Flash",
+        "Gemini 3.1 Pro",
+        "Claude Sonnet 4.6",
+        "Claude Opus 4.6",
+        "GPT-OSS 120B"
       ],
       "reasoning_options": [
-        "default"
+        "default",
+        "low",
+        "medium",
+        "high",
+        "thinking"
       ],
       "resume_supported": true
     },
@@ -39,12 +40,15 @@
       "resume_supported": true
     },
     "codex": {
-      "default_model": "gpt-5.5",
-      "default_reasoning": "high",
+      "default_model": "gpt-5.6-luna",
+      "default_reasoning": "xhigh",
       "description": "Explicit MCP flag injection for Codex-based launcher flows.",
       "fresh_launch_supported": true,
       "label": "Codex CLI",
       "model_options": [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
@@ -68,6 +72,7 @@
       "label": "Factory Droid CLI",
       "model_options": [
         "kimi-k2.6",
+        "kimi-k2.7-code",
         "glm-5.1"
       ],
       "reasoning_options": [
@@ -86,10 +91,29 @@
       "label": "Junie CLI",
       "model_options": [
         "kimi-k2.6",
+        "kimi-k2.7-code",
         "glm-5.1"
       ],
       "reasoning_options": [
         "default"
+      ],
+      "resume_supported": true
+    },
+    "kimi-code": {
+      "default_model": "kimi-k2.7-code",
+      "default_reasoning": "default",
+      "description": "Kimi Code CLI (kimi-cli) launcher flow: managed Kimi K2.7 Code, headless --print mode, project .mcp.json discovery.",
+      "fresh_launch_supported": true,
+      "label": "Kimi Code CLI",
+      "model_options": [
+        "kimi-k2.7-code"
+      ],
+      "reasoning_options": [
+        "default",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
       ],
       "resume_supported": true
     }

@@ -48,7 +48,7 @@ func main() {
 	log.Println("Starting Fixer MCP server...")
 
 	initDB()
-	bootstrapDefaultNetrunnerAuthFromEnv()
+	bootstrapDefaultRoleAuthFromEnv()
 
 	// Create MCP server
 	server := mcp.NewServer(&mcp.Implementation{Name: "fixer_mcp", Version: "v1.0.0"}, nil)
@@ -56,12 +56,25 @@ func main() {
 	if lockedRoleErr != nil {
 		log.Fatalf("Invalid locked role config: %v", lockedRoleErr)
 	}
-	if lockedRole != "" {
+	toolProfile := os.Getenv(fixerMcpToolProfileEnv)
+	if toolProfile == netrunnerGateProfile {
+		if lockedRole != "fixer" {
+			log.Fatalf("%s=%s requires %s=fixer", fixerMcpToolProfileEnv, toolProfile, fixerMcpLockedRoleEnv)
+		}
+		if authorizedRole != "fixer" || authorizedProjectId <= 0 {
+			log.Fatalf("%s=%s requires successful project-bound Fixer env authentication", fixerMcpToolProfileEnv, toolProfile)
+		}
+		log.Printf("Registering direct Netrunner gate tool surface for role=%s", lockedRole)
+		registerNetrunnerGateTools(server)
+	} else if toolProfile != "" {
+		log.Fatalf("Invalid %s config: %q", fixerMcpToolProfileEnv, toolProfile)
+	} else if lockedRole != "" {
 		log.Printf("Registering locked Fixer MCP tool surface for role=%s", lockedRole)
+		registerMcpTools(server, lockedRole)
 	} else {
 		log.Println("Registering legacy unlocked Fixer MCP tool surface")
+		registerMcpTools(server, lockedRole)
 	}
-	registerMcpTools(server, lockedRole)
 
 	// Run stdio transport
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {

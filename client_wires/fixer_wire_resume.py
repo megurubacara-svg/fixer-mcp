@@ -285,6 +285,17 @@ def _file_time(path: Path) -> datetime:
         return datetime.now(timezone.utc)
 
 
+def _file_birth_time(path: Path) -> datetime:
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return datetime.now(timezone.utc)
+    created = getattr(stat_result, "st_birthtime", None)
+    if isinstance(created, (int, float)):
+        return datetime.fromtimestamp(created, tz=timezone.utc)
+    return datetime.fromtimestamp(stat_result.st_ctime, tz=timezone.utc)
+
+
 def _iter_jsonl_records(path: Path, *, max_lines: int = 400) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     try:
@@ -391,6 +402,219 @@ def _summary_times_from_records(
     if not times:
         return fallback, fallback
     return min(times), max(times)
+
+
+_ANTIGRAVITY_CONVERSATION_FALLBACK_PREVIEW = "(antigravity conversation)"
+
+
+def _antigravity_skill_marker_variants(skill_name: str) -> tuple[str, ...]:
+    return (
+        f"/{skill_name}",
+        f"Activate skill `${skill_name}` immediately.",
+        f"Use the `{skill_name}` skill immediately.",
+        f"Use the {skill_name} skill immediately.",
+    )
+
+
+_ANTIGRAVITY_FIXER_MARKERS = tuple(
+    marker
+    for skill_name in ("init-fixer", "start-fixer")
+    for marker in _antigravity_skill_marker_variants(skill_name)
+)
+_ANTIGRAVITY_NETRUNNER_MARKERS = tuple(
+    marker
+    for skill_name in ("run-manual-netrunner", "run-manual-acceptance-netrunner", "start-netrunner")
+    for marker in _antigravity_skill_marker_variants(skill_name)
+)
+_ANTIGRAVITY_OVERSEER_MARKERS = tuple(
+    marker
+    for skill_name in ("init-overseer", "start-overseer")
+    for marker in _antigravity_skill_marker_variants(skill_name)
+)
+_ANTIGRAVITY_PREVIEW_MARKER_SNIPPETS = (
+    "skill immediately",
+    "MCP selection",
+    "Preselected session ID",
+    "Autonomous fixer Codex session ID",
+)
+_PRINTABLE_BYTES_RE = re.compile(rb"[\t\r\n -~]{4,}")
+
+
+def _antigravity_store_root() -> Path:
+    return Path.home() / ".gemini" / "antigravity-cli"
+
+
+def _read_antigravity_last_conversation_id(store_root: Path, cwd: Path) -> str | None:
+    mapping_path = store_root / "cache" / "last_conversations.json"
+    try:
+        raw_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw_mapping, dict):
+        return None
+
+    cwd_text = str(cwd.resolve())
+    for raw_cwd, raw_conversation_id in raw_mapping.items():
+        if not isinstance(raw_cwd, str) or not isinstance(raw_conversation_id, str):
+            continue
+        try:
+            if Path(raw_cwd).resolve() != cwd.resolve():
+                continue
+        except OSError:
+            if raw_cwd != cwd_text:
+                continue
+        conversation_id = raw_conversation_id.strip()
+        return conversation_id or None
+    return None
+
+
+def _iter_antigravity_conversation_ids_for_cwd(store_root: Path, cwd: Path) -> list[str]:
+    seen: set[str] = set()
+    conversation_ids: list[str] = []
+    latest_id = _read_antigravity_last_conversation_id(store_root, cwd)
+    if latest_id:
+        seen.add(latest_id)
+        conversation_ids.append(latest_id)
+
+    cwd_text = str(cwd.resolve())
+    for record in _iter_jsonl_records(store_root / "history.jsonl", max_lines=5000):
+        if str(record.get("workspace", "") or "") != cwd_text:
+            continue
+        conversation_id = str(record.get("conversationId", "") or "").strip()
+        if not conversation_id or conversation_id in seen:
+            continue
+        seen.add(conversation_id)
+        conversation_ids.append(conversation_id)
+    return conversation_ids
+
+
+def _antigravity_conversation_file(store_root: Path, conversation_id: str) -> Path | None:
+    conversation_dir = store_root / "conversations"
+    candidates = [
+        conversation_dir / f"{conversation_id}.db",
+        conversation_dir / f"{conversation_id}.pb",
+    ]
+    existing = [candidate for candidate in candidates if candidate.is_file()]
+    if not existing:
+        return None
+    return max(existing, key=lambda item: _file_time(item))
+
+
+def _printable_strings_from_binary_file(path: Path, *, max_bytes: int = 64_000_000) -> list[str]:
+    try:
+        data = path.read_bytes()[:max_bytes]
+    except OSError:
+        return []
+    strings: list[str] = []
+    for match in _PRINTABLE_BYTES_RE.finditer(data):
+        clean = " ".join(match.group(0).decode("utf-8", errors="ignore").split())
+        if clean:
+            strings.append(clean)
+    return strings
+
+
+def _first_marker_position(texts: Sequence[str], markers: Sequence[str]) -> int | None:
+    joined = "\n".join(texts)
+    positions = [position for marker in markers if (position := joined.find(marker)) >= 0]
+    return min(positions) if positions else None
+
+
+def _antigravity_conversation_is_fixer(texts: Sequence[str]) -> bool | None:
+    fixer_position = _first_marker_position(texts, _ANTIGRAVITY_FIXER_MARKERS)
+    competing_positions = [
+        position
+        for position in (
+            _first_marker_position(texts, _ANTIGRAVITY_NETRUNNER_MARKERS),
+            _first_marker_position(texts, _ANTIGRAVITY_OVERSEER_MARKERS),
+        )
+        if position is not None
+    ]
+    if fixer_position is None:
+        if competing_positions:
+            return False
+        return None
+    if not competing_positions:
+        return True
+    return fixer_position <= min(competing_positions)
+
+
+def _antigravity_preview_from_history(store_root: Path, cwd: Path, conversation_id: str) -> str | None:
+    history_path = store_root / "history.jsonl"
+    cwd_text = str(cwd.resolve())
+    for record in _iter_jsonl_records(history_path, max_lines=5000):
+        if str(record.get("conversationId", "") or "") != conversation_id:
+            continue
+        if str(record.get("workspace", "") or "") != cwd_text:
+            continue
+        display = " ".join(str(record.get("display", "") or "").split())
+        if _is_informative_preview_text(display):
+            return display
+    return None
+
+
+def _antigravity_preview_from_strings(texts: Sequence[str], *, fallback: str) -> str:
+    for text in texts:
+        clean = " ".join(text.split())
+        if not _is_informative_preview_text(clean):
+            continue
+        if any(marker in clean for marker in _ANTIGRAVITY_PREVIEW_MARKER_SNIPPETS):
+            continue
+        if clean.startswith(("SQLite format", "CREATE TABLE", "CREATE INDEX")):
+            continue
+        if len(clean) > 240:
+            continue
+        return clean
+    return fallback
+
+
+def _load_antigravity_fixer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    store_root: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    if limit <= 0:
+        return []
+
+    resolved_store_root = store_root or _antigravity_store_root()
+    conversation_ids = _iter_antigravity_conversation_ids_for_cwd(resolved_store_root, cwd)
+    if not conversation_ids:
+        return []
+
+    fixer_summaries: list[ResumeSessionSummary] = []
+    unknown_role_summaries: list[ResumeSessionSummary] = []
+    for conversation_id in conversation_ids:
+        conversation_file = _antigravity_conversation_file(resolved_store_root, conversation_id)
+        if conversation_file is None:
+            continue
+
+        texts = _printable_strings_from_binary_file(conversation_file)
+        role_is_fixer = _antigravity_conversation_is_fixer(texts)
+        if role_is_fixer is False:
+            continue
+
+        created = _file_birth_time(conversation_file)
+        updated = _file_time(conversation_file)
+        preview = (
+            _antigravity_preview_from_history(resolved_store_root, cwd, conversation_id)
+            or _antigravity_preview_from_strings(texts, fallback=_ANTIGRAVITY_CONVERSATION_FALLBACK_PREVIEW)
+        )
+        summary = ResumeSessionSummary(
+            provider="antigravity",
+            session_id=conversation_id,
+            created=created,
+            updated=updated,
+            preview=preview,
+            log_path=conversation_file,
+        )
+        if role_is_fixer is True:
+            fixer_summaries.append(summary)
+        else:
+            unknown_role_summaries.append(summary)
+
+    summaries = fixer_summaries or unknown_role_summaries
+    summaries.sort(key=lambda summary: summary.updated, reverse=True)
+    return summaries[:limit]
 
 
 def _load_claude_fixer_resume_summaries(
@@ -564,18 +788,22 @@ def load_fixer_resume_summaries(
         _load_claude_fixer_resume_summaries,
         _load_droid_fixer_resume_summaries,
         _load_junie_fixer_resume_summaries,
+        _load_antigravity_fixer_resume_summaries,
     )
     for provider_loader in provider_loaders:
         remaining = max(limit - len(fixer_summaries), 0)
         if remaining <= 0:
             break
-        fixer_summaries.extend(
-            provider_loader(
-                cwd,
-                limit=remaining,
-                session_is_fixer=session_is_fixer,
+        if provider_loader is _load_antigravity_fixer_resume_summaries:
+            fixer_summaries.extend(provider_loader(cwd, limit=remaining))
+        else:
+            fixer_summaries.extend(
+                provider_loader(
+                    cwd,
+                    limit=remaining,
+                    session_is_fixer=session_is_fixer,
+                )
             )
-        )
 
     if not fixer_summaries and codex_error is not None:
         raise codex_error

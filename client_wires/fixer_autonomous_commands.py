@@ -63,7 +63,11 @@ def _select_forced_fixer_server(
             selected_servers,
             db_path=fixer_wire._resolve_fixer_db_path(cwd),
         )
-        selected_servers = fixer_wire._bind_locked_role_to_server_env(selected_servers, role="fixer")
+        selected_servers = fixer_wire._bind_locked_role_to_server_env(
+            selected_servers,
+            role="fixer",
+            project_cwd=cwd,
+        )
         selected_servers = fixer_wire._bind_launcher_telegram_env_to_server_env(selected_servers)
     selected_config_paths: dict[str, Path] = {}
     if "sqlite" in selected_servers:

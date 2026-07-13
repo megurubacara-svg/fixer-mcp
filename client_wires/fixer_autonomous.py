@@ -318,6 +318,10 @@ def _codex_sessions_root() -> Path:
     return fixer_autonomous_transcripts._codex_sessions_root()
 
 
+def _antigravity_cli_log_root() -> Path:
+    return fixer_autonomous_transcripts._antigravity_cli_log_root()
+
+
 def _extract_droid_record_type(payload: object) -> str:
     return fixer_autonomous_transcripts._extract_droid_record_type(payload)
 
@@ -392,6 +396,53 @@ def _find_new_droid_session_id_from_factory_store(
     )
 
 
+def _extract_antigravity_conversation_id_from_line(raw_line: str) -> str | None:
+    return fixer_autonomous_transcripts._extract_antigravity_conversation_id_from_line(raw_line)
+
+
+def _candidate_antigravity_cli_log_paths(
+    log_root: Path,
+    *,
+    launch_started_at: float | None,
+) -> list[Path]:
+    return fixer_autonomous_transcripts._candidate_antigravity_cli_log_paths(
+        log_root,
+        launch_started_at=launch_started_at,
+    )
+
+
+def _antigravity_conversation_id_from_cli_log(path: Path, cwd: Path) -> str | None:
+    return fixer_autonomous_transcripts._antigravity_conversation_id_from_cli_log(path, cwd)
+
+
+def _find_new_antigravity_conversation_id_from_cli_logs(
+    cwd: Path,
+    *,
+    launch_started_at: float | None,
+    log_root: Path | None = None,
+) -> str | None:
+    return fixer_autonomous_transcripts._find_new_antigravity_conversation_id_from_cli_logs(
+        cwd,
+        launch_started_at=launch_started_at,
+        log_root=log_root,
+        antigravity_cli_log_root_fn=_antigravity_cli_log_root,
+    )
+
+
+def _wait_for_new_antigravity_conversation_id(
+    cwd: Path,
+    *,
+    launch_started_at: float | None = None,
+    timeout_sec: float = 8.0,
+) -> str | None:
+    return fixer_autonomous_transcripts._wait_for_new_antigravity_conversation_id(
+        cwd,
+        launch_started_at=launch_started_at,
+        timeout_sec=timeout_sec,
+        find_new_antigravity_conversation_id_from_cli_logs_fn=_find_new_antigravity_conversation_id_from_cli_logs,
+    )
+
+
 def _wait_for_new_droid_session_id(
     log_path: Path,
     cwd: Path,
@@ -427,6 +478,7 @@ def _wait_for_new_external_session_id(
         normalize_backend_name_fn=fixer_wire.normalize_backend_name,
         wait_for_new_codex_session_id_fn=_wait_for_new_codex_session_id,
         wait_for_new_droid_session_id_fn=_wait_for_new_droid_session_id,
+        wait_for_new_antigravity_conversation_id_fn=_wait_for_new_antigravity_conversation_id,
     )
 
 
@@ -556,6 +608,7 @@ def launch_netrunner(
     headless_log_path: Path | None = None,
     worker_metadata_path: Path | None = None,
     suppress_autonomous_wake: bool = False,
+    playwright_runtime_mode: str | None = None,
 ) -> str | None:
     bootstrap_codex_pro_import_path()
     state = _load_or_initialize_launch_state(
@@ -656,6 +709,7 @@ def launch_netrunner(
         selected_servers,
         available_servers,
         interactive=False,
+        runtime_mode=playwright_runtime_mode,
     )
     adapter.ensure_runtime_files(cwd, llm_selection, selected_servers, available_servers)
 
@@ -980,6 +1034,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     launch_parser.add_argument("--headless-log-path")
     launch_parser.add_argument("--worker-metadata-path")
     launch_parser.add_argument("--suppress-autonomous-wake", action="store_true")
+    launch_parser.add_argument("--playwright-runtime-mode")
 
     wave_worker_parser = subparsers.add_parser("launch-wave-worker")
     wave_worker_parser.add_argument("--project-cwd", required=True)
@@ -1032,6 +1087,7 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.headless_log_path).expanduser().resolve() if getattr(args, "headless_log_path", None) else None,
                 Path(args.worker_metadata_path).expanduser().resolve() if getattr(args, "worker_metadata_path", None) else None,
                 bool(getattr(args, "suppress_autonomous_wake", False)),
+                getattr(args, "playwright_runtime_mode", None),
             )
             return 0
         if args.command == "launch-wave-worker":

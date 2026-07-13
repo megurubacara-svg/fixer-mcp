@@ -1,0 +1,62 @@
+{
+  "provider": "droid",
+  "label": "Factory Droid CLI",
+  "description": "Factory Droid CLI provider for the Fixer MCP provider-adapter abstraction. Uses BYOK custom models, project-local .factory runtime files, reversible pre-clean scoping for skills/MCP, and manifest-driven auto-approve flags.",
+  "models": {
+    "options": [
+      "kimi-k2.6",
+      "kimi-k2.7-code",
+      "glm-5.1"
+    ],
+    "default": "kimi-k2.6",
+    "internal_id_map": {
+      "kimi-k2.6": "custom:Kimi-K2.6-[Kimi]-0",
+      "kimi-k2.7-code": "custom:Kimi-K2.7-Code-[Kimi]-0",
+      "glm-5.1": "custom:GLM-5.1-[Z.AI]-0"
+    },
+    "byok": true,
+    "auth": "byok"
+  },
+  "reasoning": {
+    "options": [
+      "none",
+      "low",
+      "medium",
+      "high"
+    ],
+    "default": "high",
+    "pass_mechanism": "flag",
+    "flag_or_key": "--reasoning-effort"
+  },
+  "skills": {
+    "inject_dir": ".factory/skills",
+    "scope_strategy": "pre-clean",
+    "scope_flags": []
+  },
+  "mcp": {
+    "config_format": "factory-mcp.json",
+    "scope_strategy": "pre-clean",
+    "scope_flags": []
+  },
+  "tool_registration": "native",
+  "permissions": {
+    "interactive_auto_approve_flags": [
+      "--auto",
+      "high"
+    ],
+    "headless_auto_approve_flags": [
+      "--skip-permissions-unsafe"
+    ]
+  },
+  "operator_questions": {
+    "supported": true,
+    "mechanism": "droid.ask_user-jsonrpc",
+    "headless_auto_approve_dismisses": false
+  },
+  "launch": {
+    "interactive_cmd_template": "droid --auto high --settings <tmp> [prompt]",
+    "headless_cmd_template": "droid exec --skip-permissions-unsafe -m [model] -r [reasoning] --output-format json [prompt]",
+    "resume_interactive": "droid --resume [external_session_id] [prompt]",
+    "resume_headless": "droid exec -s [external_session_id] -m [model] -r [reasoning] --output-format json [prompt]"
+  }
+}

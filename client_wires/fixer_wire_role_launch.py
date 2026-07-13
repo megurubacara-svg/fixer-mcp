@@ -103,7 +103,11 @@ def _bind_role_server_env(
         selected_servers,
         db_path=callbacks.resolve_fixer_db_path(cwd),
     )
-    selected_servers = callbacks.bind_locked_role_to_server_env(selected_servers, role=role)
+    selected_servers = callbacks.bind_locked_role_to_server_env(
+        selected_servers,
+        role=role,
+        project_cwd=cwd,
+    )
     return callbacks.bind_launcher_telegram_env_to_server_env(selected_servers)
 
 
@@ -248,6 +252,15 @@ def launch_fresh_role_session(
     print(f"[fixer-wire] {role} reasoning: {launch_selection.reasoning}")
     print(f"[fixer-wire] {role} MCP selection: {', '.join(sorted(selected_servers)) if selected_servers else 'none'}")
     print("[fixer-wire] command:", command)
+    if launch_selection.backend == "kimi-code" and launch_prompt and not dry_run:
+        print("[fixer-wire] kimi shell mode cannot auto-submit; paste the following into the Kimi TUI:")
+        print(launch_prompt)
+        try:
+            import subprocess as _subprocess
+            _subprocess.run(["pbcopy"], input=launch_prompt.encode("utf-8"), check=False)
+            print("[fixer-wire] (bootstrap prompt copied to clipboard — paste with Cmd+V)")
+        except Exception:
+            pass
     if dry_run:
         return 0
 

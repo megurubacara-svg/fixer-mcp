@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 import re
 from typing import Any, Callable, Sequence
 
 from client_wires.backends import normalize_backend_name
+from client_wires.backends.antigravity_adapter import normalize_antigravity_reasoning_alias
 from client_wires import fixer_wire_db
 
 SessionRow = fixer_wire_db.SessionRow
@@ -40,6 +42,7 @@ def _maybe_configure_playwright_runtime_mode(
     available_servers: dict[str, dict[str, object]],
     *,
     interactive: bool,
+    runtime_mode: str | None = None,
 ) -> str | None:
     if not _is_codex_adapter(adapter):
         return None
@@ -47,10 +50,20 @@ def _maybe_configure_playwright_runtime_mode(
         return None
 
     try:
-        from client_wires.codex_compat.runtime import _maybe_configure_playwright_runtime
+        runtime_helpers = importlib.import_module("client_wires.codex_compat.runtime")
     except ImportError:
         return None
 
+    if runtime_mode is not None and str(runtime_mode).strip():
+        apply_playwright_runtime_mode = getattr(runtime_helpers, "apply_playwright_runtime_mode", None)
+        if not callable(apply_playwright_runtime_mode):
+            return None
+        return apply_playwright_runtime_mode(
+            available_servers,
+            selected_servers,
+            mode=str(runtime_mode),
+        )
+    _maybe_configure_playwright_runtime = getattr(runtime_helpers, "_maybe_configure_playwright_runtime", None)
     if not callable(_maybe_configure_playwright_runtime):
         return None
     return _maybe_configure_playwright_runtime(
@@ -173,6 +186,9 @@ def _resolve_netrunner_launch_selection(
     else:
         reasoning = callbacks.select_reasoning_interactive(backend, descriptor.default_reasoning, Option, single_select_items)
 
+    if getattr(descriptor, "name", "") == "antigravity":
+        reasoning = normalize_antigravity_reasoning_alias(model, reasoning)
+
     return SessionLaunchSelection(
         backend=backend,
         model=callbacks.normalize_backend_model(descriptor, model),
@@ -209,6 +225,9 @@ def _select_fresh_launch_selection(
         reasoning = preset_reasoning.strip()
     else:
         reasoning = callbacks.select_reasoning_interactive(backend, descriptor.default_reasoning, Option, single_select_items)
+
+    if getattr(descriptor, "name", "") == "antigravity":
+        reasoning = normalize_antigravity_reasoning_alias(model, reasoning)
 
     return SessionLaunchSelection(
         backend=backend,

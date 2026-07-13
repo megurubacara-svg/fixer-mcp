@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import os
 from pathlib import Path
 import sys
@@ -19,17 +18,15 @@ PLAYWRIGHT_CHROME_VIEWPORT_ENV = "CODEX_PRO_PLAYWRIGHT_CHROME_VIEWPORT"
 PLAYWRIGHT_MODE_DEFAULT = "default"
 PLAYWRIGHT_MODE_HEADLESS = "headless"
 PLAYWRIGHT_MODE_CHROME = "chrome"
+PLAYWRIGHT_MODE_HEADLESS_PROFILE = "headless-profile"
 PLAYWRIGHT_MODE_VALUES = {
     PLAYWRIGHT_MODE_DEFAULT,
     PLAYWRIGHT_MODE_HEADLESS,
     PLAYWRIGHT_MODE_CHROME,
+    PLAYWRIGHT_MODE_HEADLESS_PROFILE,
 }
-PLAYWRIGHT_CHROME_PROFILE_ROOT = Path.home() / ".codex" / "browser-profiles" / "playwright-chrome"
-PLAYWRIGHT_CHROME_PROFILE_DEFAULT = (
-    PLAYWRIGHT_CHROME_PROFILE_ROOT
-    / "sessions"
-    / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-)
+PLAYWRIGHT_CHROME_PROFILE_ROOT = Path.home() / ".codex" / "playwright-profiles"
+PLAYWRIGHT_CHROME_PROFILE_DEFAULT = PLAYWRIGHT_CHROME_PROFILE_ROOT / "operator-default"
 DEFAULT_SQLITE_DB_NAME = "db/dev.sqlite3"
 
 
@@ -48,6 +45,11 @@ def normalize_playwright_runtime_mode(raw_mode: Optional[str]) -> Optional[str]:
         "chromium": PLAYWRIGHT_MODE_CHROME,
         "chrome-headed": PLAYWRIGHT_MODE_CHROME,
         "chrome_visible": PLAYWRIGHT_MODE_CHROME,
+        "persistent-headless": PLAYWRIGHT_MODE_HEADLESS_PROFILE,
+        "headless-persistent": PLAYWRIGHT_MODE_HEADLESS_PROFILE,
+        "profile-headless": PLAYWRIGHT_MODE_HEADLESS_PROFILE,
+        "chrome-headless": PLAYWRIGHT_MODE_HEADLESS_PROFILE,
+        "headless_profile": PLAYWRIGHT_MODE_HEADLESS_PROFILE,
     }
     mode = aliases.get(mode, mode)
     if mode not in PLAYWRIGHT_MODE_VALUES:
@@ -77,21 +79,29 @@ def playwright_chrome_cdp_wrapper_path() -> Path:
     return Path(__file__).with_name("playwright_chrome_cdp.py")
 
 
+def playwright_persistent_profile_args(*, headless: bool) -> List[str]:
+    args = [
+        str(playwright_chrome_cdp_wrapper_path()),
+        "--user-data-dir",
+        str(playwright_chrome_profile_dir()),
+    ]
+    if headless:
+        args.append("--headless")
+    viewport = playwright_chrome_viewport()
+    if viewport:
+        args.extend(["--viewport-size", viewport])
+    return args
+
+
 def playwright_command_and_args_for_mode(mode: str) -> Optional[Tuple[str, List[str]]]:
     if mode == PLAYWRIGHT_MODE_DEFAULT:
         return None
     if mode == PLAYWRIGHT_MODE_HEADLESS:
         return "npx", ["-y", "@playwright/mcp@latest", "--isolated", "--headless"]
     if mode == PLAYWRIGHT_MODE_CHROME:
-        args = [
-            str(playwright_chrome_cdp_wrapper_path()),
-            "--user-data-dir",
-            str(playwright_chrome_profile_dir()),
-        ]
-        viewport = playwright_chrome_viewport()
-        if viewport:
-            args.extend(["--viewport-size", viewport])
-        return sys.executable, args
+        return sys.executable, playwright_persistent_profile_args(headless=False)
+    if mode == PLAYWRIGHT_MODE_HEADLESS_PROFILE:
+        return sys.executable, playwright_persistent_profile_args(headless=True)
     return None
 
 
@@ -147,6 +157,7 @@ def maybe_configure_playwright_runtime(
             Option("Use existing config", PLAYWRIGHT_MODE_DEFAULT),
             Option("Headless isolated", PLAYWRIGHT_MODE_HEADLESS),
             Option("Chrome headed profile", PLAYWRIGHT_MODE_CHROME),
+            Option("Persistent headless profile", PLAYWRIGHT_MODE_HEADLESS_PROFILE),
         ],
         title="Select Playwright runtime (enter confirm, q cancel)",
         preselected_value=PLAYWRIGHT_MODE_DEFAULT,
@@ -283,4 +294,3 @@ _maybe_configure_playwright_runtime = maybe_configure_playwright_runtime
 _relative_to_cwd = relative_to_cwd
 _discover_sqlite_files = discover_sqlite_files
 _ensure_sqlite_scaffold = ensure_sqlite_scaffold
-

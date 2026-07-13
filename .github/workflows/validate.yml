@@ -1,0 +1,24 @@
+name: deterministic-validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: fixer_mcp/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m unittest discover -s client_wires/tests
+      - run: make test-go
+      - run: FIXER_INSTALL_PREFIX="$RUNNER_TEMP/fixer" make install-verify
+      - run: make docker-smoke
+
+# Authenticated docker-bootstrap-e2e remains an operator-run, manual gate.

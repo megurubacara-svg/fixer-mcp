@@ -17,6 +17,24 @@ CONFIG_ENV_VARS = {
 }
 
 MODEL_REASONING_OPTIONS: Dict[str, List[Tuple[str, str, str]]] = {
+    "gpt-5.6-sol": [
+        ("Low", "low", "Fast responses with lighter reasoning"),
+        ("Medium", "medium", "Balances speed and reasoning depth for everyday tasks"),
+        ("High", "high", "Greater reasoning depth for complex problems"),
+        ("Extra High", "xhigh", "Extra high reasoning depth for complex problems"),
+    ],
+    "gpt-5.6-terra": [
+        ("Low", "low", "Fast responses with lighter reasoning"),
+        ("Medium", "medium", "Balances speed and reasoning depth for everyday tasks"),
+        ("High", "high", "Greater reasoning depth for complex problems"),
+        ("Extra High", "xhigh", "Extra high reasoning depth for complex problems"),
+    ],
+    "gpt-5.6-luna": [
+        ("Low", "low", "Fast responses with lighter reasoning"),
+        ("Medium", "medium", "Balances speed and reasoning depth for everyday tasks"),
+        ("High", "high", "Greater reasoning depth for complex problems"),
+        ("Extra High", "xhigh", "Extra high reasoning depth for complex problems"),
+    ],
     "gpt-5.5": [
         ("Minimal", "minimal", "Fastest responses with little reasoning"),
         ("Low", "low", "Balances speed with some reasoning; useful for straightforward queries and short explanations"),
@@ -49,6 +67,9 @@ MODEL_REASONING_OPTIONS: Dict[str, List[Tuple[str, str, str]]] = {
 }
 
 MODEL_DEFAULT_EFFORT = {
+    "gpt-5.6-sol": "xhigh",
+    "gpt-5.6-terra": "xhigh",
+    "gpt-5.6-luna": "xhigh",
     "gpt-5.5": "high",
     "gpt-5.4": "high",
     "gpt-5.3-codex": "medium",
@@ -56,7 +77,7 @@ MODEL_DEFAULT_EFFORT = {
     "gpt-5.2": "medium",
 }
 
-DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_MODEL = "gpt-5.6-luna"
 DEFAULT_REASONING = MODEL_DEFAULT_EFFORT[DEFAULT_MODEL]
 LLM_ENV_PATH = Path.home() / ".codex" / "llm.env"
 
@@ -241,4 +262,3 @@ _reasoning_label = reasoning_label
 _load_llm_env = load_llm_env
 _merge_env_with_os = merge_env_with_os
 _dynamic_mcp_overrides = dynamic_mcp_overrides
-

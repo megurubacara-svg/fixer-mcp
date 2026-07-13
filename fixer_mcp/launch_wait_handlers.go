@@ -451,6 +451,7 @@ type LaunchExplicitNetrunnerInput struct {
 	Backend                    string `json:"backend,omitempty" jsonschema:"Optional CLI backend to launch for this session. Supported: codex, droid, antigravity (agy alias)."`
 	Model                      string `json:"model,omitempty" jsonschema:"Optional backend-specific model selection to persist for this session."`
 	Reasoning                  string `json:"reasoning,omitempty" jsonschema:"Optional backend-specific reasoning setting to persist for this session."`
+	PlaywrightRuntimeMode      string `json:"playwright_runtime_mode,omitempty" jsonschema:"Optional validated Playwright MCP runtime mode for Codex launches. Supported: default, headless, chrome, headless-profile. headless-profile uses the persistent login profile in an isolated agent-owned context, attaching to an existing loopback-CDP Chrome or launching owned headless Chrome when free."`
 }
 
 type LaunchExplicitNetrunnerOutput struct {
@@ -533,6 +534,7 @@ type LaunchAndWaitNetrunnerInput struct {
 	Backend                    string `json:"backend,omitempty" jsonschema:"Optional CLI backend to launch for this session. Supported: codex, droid, antigravity (agy alias)."`
 	Model                      string `json:"model,omitempty" jsonschema:"Optional backend-specific model selection to persist for this session."`
 	Reasoning                  string `json:"reasoning,omitempty" jsonschema:"Optional backend-specific reasoning setting to persist for this session."`
+	PlaywrightRuntimeMode      string `json:"playwright_runtime_mode,omitempty" jsonschema:"Optional validated Playwright MCP runtime mode for Codex launches. Supported: default, headless, chrome, headless-profile. headless-profile uses the persistent login profile in an isolated agent-owned context, attaching to an existing loopback-CDP Chrome or launching owned headless Chrome when free."`
 	TimeoutSeconds             int    `json:"timeout_seconds,omitempty" jsonschema:"Optional wait timeout in seconds. Default 7200; max 21600."`
 	PollIntervalSeconds        int    `json:"poll_interval_seconds,omitempty" jsonschema:"Optional poll interval in seconds. Default 5; max 60."`
 }
@@ -595,6 +597,10 @@ func waitFollowUpDecision(control orchestrationControl, launchEpoch int) (bool, 
 }
 
 func launchExplicitNetrunnerWithMetadata(ctx context.Context, input LaunchExplicitNetrunnerInput) (ExplicitNetrunnerLaunchMetadata, error) {
+	playwrightRuntimeMode, err := normalizeExplicitPlaywrightRuntimeMode(input.PlaywrightRuntimeMode)
+	if err != nil {
+		return ExplicitNetrunnerLaunchMetadata{}, err
+	}
 	sessionID := input.SessionId
 	globalSessionID, err := globalSessionIDFromProjectScoped(sessionID, authorizedProjectId)
 	if err == sql.ErrNoRows {
@@ -677,6 +683,9 @@ func launchExplicitNetrunnerWithMetadata(ctx context.Context, input LaunchExplic
 	}
 	if strings.TrimSpace(launchConfig.Reasoning) != "" {
 		commandArgs = append(commandArgs, "--reasoning", launchConfig.Reasoning)
+	}
+	if playwrightRuntimeMode != "" {
+		commandArgs = append(commandArgs, "--playwright-runtime-mode", playwrightRuntimeMode)
 	}
 	commandArgs = append(
 		commandArgs,
@@ -772,6 +781,19 @@ func launchExplicitNetrunnerWithMetadata(ctx context.Context, input LaunchExplic
 		SpawnedBackground:  true,
 		DeclaredWriteScope: append([]string{}, sessionState.DeclaredWriteScope...),
 	}, nil
+}
+
+func normalizeExplicitPlaywrightRuntimeMode(raw string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", "default", "headless", "chrome", "headless-profile":
+		return mode, nil
+	default:
+		return "", fmt.Errorf(
+			"unsupported playwright_runtime_mode %q; supported values: default, headless, chrome, headless-profile",
+			raw,
+		)
+	}
 }
 
 func fetchSessionWaitSnapshot(sessionID int, projectID int) (string, string, []int, string, string, string, string, error) {
@@ -1336,6 +1358,7 @@ func LaunchAndWaitNetrunner(ctx context.Context, req *mcp.CallToolRequest, input
 		Backend:                    input.Backend,
 		Model:                      input.Model,
 		Reasoning:                  input.Reasoning,
+		PlaywrightRuntimeMode:      input.PlaywrightRuntimeMode,
 	})
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, LaunchAndWaitNetrunnerOutput{}, err

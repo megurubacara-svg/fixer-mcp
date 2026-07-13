@@ -1568,7 +1568,7 @@ func TestGetActiveProjectOverviews_OverseerPayload(t *testing.T) {
 	}
 	for i := 2; i <= 6; i++ {
 		_, err := testDB.Exec(
-			"INSERT INTO session (project_id, task_description, status, report, cli_backend, cli_model, cli_reasoning) VALUES (1, ?, 'review', ?, 'codex', 'gpt-5.5', 'high')",
+			"INSERT INTO session (project_id, task_description, status, report, cli_backend, cli_model, cli_reasoning) VALUES (1, ?, 'review', ?, 'codex', 'gpt-5.6-luna', 'xhigh')",
 			"Task A"+strconv.Itoa(i),
 			"Report A"+strconv.Itoa(i),
 		)
@@ -1622,7 +1622,7 @@ func TestGetActiveProjectOverviews_OverseerPayload(t *testing.T) {
 	if latest.GlobalSessionId != latestGlobalID || latest.TaskDescription != "Task A6" || latest.Report != "Report A6" {
 		t.Fatalf("unexpected latest session: %+v", latest)
 	}
-	if latest.CliBackend != "codex" || latest.CliModel != "gpt-5.5" || latest.CliReasoning != "high" {
+	if latest.CliBackend != "codex" || latest.CliModel != "gpt-5.6-luna" || latest.CliReasoning != "xhigh" {
 		t.Fatalf("missing launch metadata: %+v", latest)
 	}
 	if latest.ExternalSessionId != "external-a6" || latest.CodexSessionId != "codex-a6" {

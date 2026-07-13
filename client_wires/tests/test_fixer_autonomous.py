@@ -5,6 +5,7 @@ import io
 import json
 import os
 import sqlite3
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,6 +35,7 @@ class _TrackingConnection:
 
 
 class _FakeBackendAdapter:
+    name = "codex"
     command = "codex"
 
     @staticmethod
@@ -701,6 +703,8 @@ class FixerAutonomousTests(unittest.TestCase):
         selected = captured["selected"]
         server_env = selected[fixer_wire.FORCED_MCP_SERVER]["env"]
         self.assertEqual(server_env[fixer_wire.FIXER_DB_PATH_ENV], str(db_path))
+        self.assertEqual(server_env[fixer_wire.FIXER_MCP_DEFAULT_CWD_ENV], str(cwd.resolve()))
+        self.assertEqual(server_env[fixer_wire.FIXER_MCP_DEFAULT_ROLE_ENV], "fixer")
         self.assertEqual(server_env[fixer_wire.FIXER_MCP_LOCKED_ROLE_ENV], "fixer")
 
     def test_build_fixer_resume_command_fails_loudly_when_forced_server_is_missing(self) -> None:
@@ -1038,6 +1042,169 @@ class FixerAutonomousTests(unittest.TestCase):
             "Assigned MCP selection from fixer autonomous flow: fixer_mcp.",
             launched["command"][-1],
         )
+
+    def test_launch_netrunner_default_playwright_runtime_stays_headless_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            db_path = cwd / "fixer.db"
+            db_path.touch()
+            fixer_autonomous._save_state(
+                cwd,
+                {
+                    "fixer_codex_session_id": "fixer-session-123",
+                    "active_netrunner_session_id": None,
+                    "active_netrunner_session_ids": [],
+                },
+            )
+            captured_runtime: dict[str, object] = {}
+
+            class _FakeProcess:
+                returncode = None
+
+                @staticmethod
+                def poll() -> int | None:
+                    return None
+
+            session_row = fixer_wire.SessionRow(
+                session_id=6,
+                global_session_id=60,
+                task_description="Task",
+                status="pending",
+                codex_session_id="",
+            )
+            _seed_launch_db(db_path, [session_row])
+
+            def fake_available_servers() -> tuple[dict[str, dict[str, object]], dict[str, str], _FakeBackendAdapter, object]:
+                return (
+                    {
+                        fixer_wire.FORCED_MCP_SERVER: {"command": "fixer_mcp"},
+                        "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]},
+                    },
+                    {},
+                    _FakeBackendAdapter(),
+                    lambda _cwd: None,
+                )
+
+            def capture_runtime_files(
+                _cwd: Path,
+                _selection: object,
+                selected: dict[str, object],
+                _available: dict[str, object],
+            ) -> None:
+                captured_runtime["selected"] = {name: dict(config) for name, config in selected.items()}
+
+            with (
+                patch.dict(os.environ, {"CODEX_THREAD_ID": "", "CODEX_SESSION_ID": ""}, clear=False),
+                patch.object(fixer_autonomous, "bootstrap_codex_pro_import_path", return_value=None),
+                patch.object(fixer_wire, "_load_available_servers", side_effect=lambda *_a, **_k: fake_available_servers()),
+                patch.object(_FakeBackendAdapter, "ensure_runtime_files", side_effect=capture_runtime_files),
+                patch.object(fixer_autonomous, "_build_common_codex_env", return_value={}),
+                patch.object(fixer_wire, "_resolve_fixer_db_path", return_value=db_path),
+                patch.object(fixer_wire, "_resolve_project_id", return_value=1),
+                patch.object(fixer_wire, "_load_session_rows", return_value=[session_row]),
+                patch.object(fixer_wire, "_load_assigned_mcp_names", return_value=["playwright"]),
+                patch.object(fixer_wire, "_load_registry_mcp_metadata", return_value={}),
+                patch.object(
+                    fixer_wire,
+                    "_build_mcp_how_to_map",
+                    return_value={
+                        fixer_wire.FORCED_MCP_SERVER: "Use fixer_mcp for project tools.",
+                        "playwright": "Use for browser checks.",
+                    },
+                ),
+                patch.object(fixer_wire, "_latest_codex_session_id_for_cwd", return_value="before-session"),
+                patch.object(fixer_wire, "_save_session_external_id", return_value=None),
+                patch.object(fixer_autonomous, "_wait_for_new_external_session_id", return_value="new-session"),
+                patch("client_wires.fixer_autonomous.subprocess.Popen", return_value=_FakeProcess()),
+            ):
+                fixer_autonomous.launch_netrunner(cwd, 6)
+
+        selected = captured_runtime["selected"]
+        self.assertEqual(selected["playwright"]["command"], "npx")
+        self.assertEqual(selected["playwright"]["args"], ["-y", "@playwright/mcp@latest"])
+
+    def test_launch_netrunner_can_request_playwright_chrome_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            db_path = cwd / "fixer.db"
+            db_path.touch()
+            fixer_autonomous._save_state(
+                cwd,
+                {
+                    "fixer_codex_session_id": "fixer-session-123",
+                    "active_netrunner_session_id": None,
+                    "active_netrunner_session_ids": [],
+                },
+            )
+            captured_runtime: dict[str, object] = {}
+
+            class _FakeProcess:
+                returncode = None
+
+                @staticmethod
+                def poll() -> int | None:
+                    return None
+
+            session_row = fixer_wire.SessionRow(
+                session_id=6,
+                global_session_id=60,
+                task_description="Task",
+                status="pending",
+                codex_session_id="",
+            )
+            _seed_launch_db(db_path, [session_row])
+
+            def fake_available_servers() -> tuple[dict[str, dict[str, object]], dict[str, str], _FakeBackendAdapter, object]:
+                return (
+                    {
+                        fixer_wire.FORCED_MCP_SERVER: {"command": "fixer_mcp"},
+                        "playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]},
+                    },
+                    {},
+                    _FakeBackendAdapter(),
+                    lambda _cwd: None,
+                )
+
+            def capture_runtime_files(
+                _cwd: Path,
+                _selection: object,
+                selected: dict[str, object],
+                _available: dict[str, object],
+            ) -> None:
+                captured_runtime["selected"] = {name: dict(config) for name, config in selected.items()}
+
+            with (
+                patch.dict(os.environ, {"CODEX_THREAD_ID": "", "CODEX_SESSION_ID": ""}, clear=False),
+                patch.object(fixer_autonomous, "bootstrap_codex_pro_import_path", return_value=None),
+                patch.object(fixer_wire, "_load_available_servers", side_effect=lambda *_a, **_k: fake_available_servers()),
+                patch.object(_FakeBackendAdapter, "ensure_runtime_files", side_effect=capture_runtime_files),
+                patch.object(fixer_autonomous, "_build_common_codex_env", return_value={}),
+                patch.object(fixer_wire, "_resolve_fixer_db_path", return_value=db_path),
+                patch.object(fixer_wire, "_resolve_project_id", return_value=1),
+                patch.object(fixer_wire, "_load_session_rows", return_value=[session_row]),
+                patch.object(fixer_wire, "_load_assigned_mcp_names", return_value=["playwright"]),
+                patch.object(fixer_wire, "_load_registry_mcp_metadata", return_value={}),
+                patch.object(
+                    fixer_wire,
+                    "_build_mcp_how_to_map",
+                    return_value={
+                        fixer_wire.FORCED_MCP_SERVER: "Use fixer_mcp for project tools.",
+                        "playwright": "Use for browser checks.",
+                    },
+                ),
+                patch.object(fixer_wire, "_latest_codex_session_id_for_cwd", return_value="before-session"),
+                patch.object(fixer_wire, "_save_session_external_id", return_value=None),
+                patch.object(fixer_autonomous, "_wait_for_new_external_session_id", return_value="new-session"),
+                patch("client_wires.fixer_autonomous.subprocess.Popen", return_value=_FakeProcess()),
+            ):
+                fixer_autonomous.launch_netrunner(cwd, 6, playwright_runtime_mode="chrome")
+
+        selected = captured_runtime["selected"]
+        self.assertEqual(selected["playwright"]["command"], sys.executable)
+        self.assertIn("playwright_chrome_cdp.py", selected["playwright"]["args"][0])
+        self.assertIn("--user-data-dir", selected["playwright"]["args"])
+        self.assertNotIn("--headless", selected["playwright"]["args"])
+        self.assertEqual(selected["playwright"]["_source"], "preset_mcp")
 
     def test_launch_netrunner_persists_early_droid_external_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1415,6 +1582,95 @@ class FixerAutonomousTests(unittest.TestCase):
         self.assertEqual(saved_ids, [(60, "droid", "droid-native-session")])
         self.assertEqual(payload["last_launched_netrunner_session_id"], "droid-native-session")
         self.assertEqual(payload["last_launched_netrunner_backend"], "droid")
+        self.assertIn("Preselected session ID from fixer autonomous flow: `6`.", launched["command"][-1])
+
+    def test_launch_netrunner_saves_antigravity_external_id_from_cli_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as log_tmp:
+            cwd = Path(tmp)
+            log_root = Path(log_tmp)
+            db_path = cwd / "fixer.db"
+            db_path.touch()
+            fixer_autonomous._save_state(
+                cwd,
+                {
+                    "fixer_codex_session_id": "fixer-session-123",
+                    "active_netrunner_session_id": None,
+                    "active_netrunner_session_ids": [],
+                },
+            )
+
+            launched: dict[str, object] = {}
+            saved_ids: list[tuple[int, str, str]] = []
+
+            class _FakeProcess:
+                returncode = None
+                pid = 12345
+
+                @staticmethod
+                def poll() -> int | None:
+                    return None
+
+            session_row = fixer_wire.SessionRow(
+                session_id=6,
+                global_session_id=60,
+                task_description="Task",
+                status="pending",
+                cli_backend="antigravity",
+                cli_model="Gemini 3.5 Flash",
+                cli_reasoning="low",
+            )
+            _seed_launch_db(db_path, [session_row])
+
+            def fake_popen(command: list[str], **kwargs: object) -> _FakeProcess:
+                launched["command"] = command
+                launched["kwargs"] = kwargs
+                log_path = log_root / "cli-20260702_023232.log"
+                log_path.write_text(
+                    "\n".join(
+                        [
+                            f"I0702 server.go:224] Creating CLI server backend: workspaceDirs=[{cwd.resolve()}] appDataDir=/tmp/app",
+                            "I0702 server.go:807] Created conversation cb18f692-f4a9-4895-9509-d093dd911437",
+                            "I0702 printmode.go:179] Print mode: conversation=cb18f692-f4a9-4895-9509-d093dd911437, sending message",
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                return _FakeProcess()
+
+            with (
+                patch.dict(os.environ, {"CODEX_THREAD_ID": "", "CODEX_SESSION_ID": ""}, clear=False),
+                patch.object(fixer_autonomous, "bootstrap_codex_pro_import_path", return_value=None),
+                patch.object(fixer_wire, "_load_available_servers", side_effect=lambda *_a, **_k: _fake_available_servers()),
+                patch.object(fixer_autonomous, "_build_common_codex_env", return_value={}),
+                patch.object(fixer_wire, "_resolve_fixer_db_path", return_value=db_path),
+                patch.object(fixer_wire, "_resolve_project_id", return_value=1),
+                patch.object(fixer_wire, "_load_session_rows", return_value=[session_row]),
+                patch.object(fixer_wire, "_load_assigned_mcp_names", return_value=[]),
+                patch.object(fixer_wire, "_load_registry_mcp_metadata", return_value={}),
+                patch.object(
+                    fixer_wire,
+                    "_build_mcp_how_to_map",
+                    return_value={fixer_wire.FORCED_MCP_SERVER: "Use fixer_mcp for project tools."},
+                ),
+                patch.object(fixer_autonomous, "_antigravity_cli_log_root", return_value=log_root),
+                patch.object(
+                    fixer_wire,
+                    "_save_session_external_id",
+                    side_effect=lambda _conn, session_id, backend, external_session_id: saved_ids.append(
+                        (session_id, backend, external_session_id)
+                    ),
+                ),
+                patch("client_wires.fixer_autonomous.subprocess.Popen", side_effect=fake_popen),
+            ):
+                new_session_id = fixer_autonomous.launch_netrunner(cwd, 6)
+
+            payload = json.loads((cwd / ".codex" / "autonomous_resolution.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(new_session_id, "cb18f692-f4a9-4895-9509-d093dd911437")
+        self.assertEqual(saved_ids, [(60, "antigravity", "cb18f692-f4a9-4895-9509-d093dd911437")])
+        self.assertEqual(payload["last_launched_netrunner_session_id"], "cb18f692-f4a9-4895-9509-d093dd911437")
+        self.assertEqual(payload["last_launched_netrunner_backend"], "antigravity")
         self.assertIn("Preselected session ID from fixer autonomous flow: `6`.", launched["command"][-1])
 
     def test_launch_netrunner_allows_explicit_droid_model_override_for_pending_session(self) -> None:

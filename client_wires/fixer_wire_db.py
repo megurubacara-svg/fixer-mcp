@@ -13,6 +13,10 @@ from client_wires.backends import (
     available_backend_descriptors,
     normalize_backend_name,
 )
+from client_wires.backends.antigravity_adapter import (
+    normalize_antigravity_model_alias,
+    normalize_antigravity_reasoning_alias,
+)
 from client_wires.backends.droid_adapter import normalize_droid_model_alias
 
 FIXER_DB_PATH_ENV = "FIXER_DB_PATH"
@@ -599,6 +603,8 @@ def _normalize_backend_model(descriptor: Any, model: str | None) -> str:
     candidate = (model or "").strip() or descriptor.default_model
     if descriptor.name == "droid":
         candidate = normalize_droid_model_alias(candidate)
+    if descriptor.name == "antigravity":
+        candidate = normalize_antigravity_model_alias(candidate)
     if candidate not in descriptor.model_options:
         supported = ", ".join(descriptor.model_options)
         raise RuntimeError(
@@ -611,6 +617,8 @@ def _normalize_backend_reasoning(descriptor: Any, reasoning: str | None) -> str:
     candidate = (reasoning or "").strip() or descriptor.default_reasoning
     if descriptor.name == "droid" and candidate in {"", "none"}:
         candidate = "high"
+    if descriptor.name == "antigravity":
+        candidate = candidate.lower()
     if candidate not in descriptor.reasoning_options:
         supported = ", ".join(descriptor.reasoning_options)
         raise RuntimeError(
@@ -695,7 +703,12 @@ def _persist_session_launch_selection(
     normalized_backend = normalize_backend_name(selection.backend)
     descriptor = backend_descriptor(normalized_backend)
     resolved_model = normalize_backend_model(descriptor, selection.model)
-    resolved_reasoning = normalize_backend_reasoning(descriptor, selection.reasoning)
+    resolved_reasoning = normalize_backend_reasoning(
+        descriptor,
+        normalize_antigravity_reasoning_alias(selection.model, selection.reasoning)
+        if descriptor.name == "antigravity"
+        else selection.reasoning,
+    )
     stored_backend = normalize_backend_name(session_row.cli_backend)
     started = bool(session_row.external_session_id.strip())
     stored_model = ""
@@ -704,7 +717,13 @@ def _persist_session_launch_selection(
         stored_model_raw = session_row.cli_model.strip()
         stored_model = normalize_backend_model(descriptor, stored_model_raw) if stored_model_raw else ""
         stored_reasoning_raw = session_row.cli_reasoning.strip()
-        stored_reasoning = normalize_backend_reasoning(descriptor, stored_reasoning_raw) if stored_reasoning_raw else ""
+        if stored_reasoning_raw:
+            stored_reasoning_input = (
+                normalize_antigravity_reasoning_alias(stored_model_raw, stored_reasoning_raw)
+                if descriptor.name == "antigravity"
+                else stored_reasoning_raw
+            )
+            stored_reasoning = normalize_backend_reasoning(descriptor, stored_reasoning_input)
 
     if started and stored_backend != normalized_backend:
         raise RuntimeError(

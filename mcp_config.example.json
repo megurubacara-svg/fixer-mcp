@@ -4,7 +4,7 @@
       "args": [],
       "command": "./fixer_mcp/fixer_mcp",
       "env": {
-        "FIXER_MCP_DB_PATH": "./fixer_mcp/fixer.db",
+        "FIXER_DB_PATH": "./fixer_mcp/fixer.db",
         "FIXER_MCP_TELEGRAM_BOT_TOKEN": "replace-with-token-if-needed",
         "FIXER_MCP_TELEGRAM_CHAT_ID": "replace-with-chat-id-if-needed"
       },

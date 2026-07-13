@@ -1,0 +1,71 @@
+{
+  "provider": "junie",
+  "label": "JetBrains Junie CLI",
+  "description": "JetBrains Junie CLI provider for the Fixer MCP provider-adapter abstraction. Uses explicit skill and MCP location flags for strict scope isolation.",
+  "models": {
+    "options": [
+      "kimi-k2.6",
+      "kimi-k2.7-code",
+      "glm-5.1"
+    ],
+    "default": "kimi-k2.6",
+    "internal_id_map": {
+      "kimi-k2.6": "custom:kimi-k2.6",
+      "kimi-k2.7-code": "custom:kimi-k2.7-code",
+      "glm-5.1": "custom:glm-5.1"
+    },
+    "byok": true,
+    "auth": "byok"
+  },
+  "reasoning": {
+    "options": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "default": "medium",
+    "pass_mechanism": "flag",
+    "flag_or_key": "--effort"
+  },
+  "skills": {
+    "inject_dir": ".junie/fixer-runtime/skills",
+    "scope_strategy": "location-flag",
+    "scope_flags": [
+      "--skill-location",
+      ".junie/fixer-runtime/skills",
+      "--skill-default-locations",
+      "false"
+    ]
+  },
+  "mcp": {
+    "config_format": "mcp-config-file",
+    "scope_strategy": "location-flag",
+    "scope_flags": [
+      "--mcp-location",
+      ".junie/fixer-runtime/mcp",
+      "--mcp-default-locations",
+      "false"
+    ]
+  },
+  "tool_registration": "native",
+  "permissions": {
+    "interactive_auto_approve_flags": [
+      "--brave"
+    ],
+    "headless_auto_approve_flags": [],
+    "headless_auto_approve_justification": "Junie has no documented headless auto-approve flag. Brave Mode is interactive-only; headless behavior depends on the model profile and Junie's default permission handling."
+  },
+  "operator_questions": {
+    "supported": false,
+    "headless_auto_approve_dismisses": false
+  },
+  "launch": {
+    "interactive_cmd_template": "junie --model [model] --model-default-locations true --skill-location .junie/fixer-runtime/skills --skill-default-locations false --mcp-location .junie/fixer-runtime/mcp --mcp-default-locations false --brave [task]",
+    "headless_cmd_template": "junie --model [model] --model-default-locations true --skill-location .junie/fixer-runtime/skills --skill-default-locations false --mcp-location .junie/fixer-runtime/mcp --mcp-default-locations false --output-format json --task \"[prompt]\"",
+    "resume_interactive": "junie --resume --session-id [external_session_id] [task]",
+    "resume_headless": "junie --resume --session-id [external_session_id] --output-format json --task \"[prompt]\""
+  }
+}

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="@REPO_ROOT@"
+export FIXER_MCP_BINARY="${FIXER_MCP_BINARY:-@FIXER_BINARY@}"
+exec python3 "${REPO_ROOT}/client_wires/fixer_wire.py" "$@"

@@ -1,0 +1,68 @@
+{
+  "provider": "claude",
+  "label": "Claude Code CLI",
+  "description": "Anthropic Claude Code CLI provider for the Fixer MCP provider-adapter abstraction. Supports API-key headless auth and strict MCP config isolation.",
+  "models": {
+    "options": [
+      "sonnet",
+      "opus",
+      "haiku"
+    ],
+    "default": "sonnet",
+    "internal_id_map": {
+      "sonnet": "sonnet",
+      "opus": "opus",
+      "haiku": "haiku"
+    },
+    "byok": false,
+    "auth": "api_key",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  "reasoning": {
+    "options": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "default": "medium",
+    "pass_mechanism": "flag",
+    "flag_or_key": "--effort"
+  },
+  "skills": {
+    "inject_dir": ".claude/skills",
+    "scope_strategy": "per-skill-disable",
+    "scope_flags": []
+  },
+  "mcp": {
+    "config_format": "strict-mcp-config",
+    "scope_strategy": "strict-config-flag",
+    "scope_flags": [
+      "--strict-mcp-config",
+      "--mcp-config"
+    ]
+  },
+  "tool_registration": "native",
+  "permissions": {
+    "interactive_auto_approve_flags": [
+      "--permission-mode",
+      "auto"
+    ],
+    "headless_auto_approve_flags": [
+      "--print",
+      "--permission-mode",
+      "bypassPermissions"
+    ]
+  },
+  "operator_questions": {
+    "supported": false,
+    "headless_auto_approve_dismisses": false
+  },
+  "launch": {
+    "interactive_cmd_template": "claude --model [model] --permission-mode auto [prompt]",
+    "headless_cmd_template": "claude --print --model [model] --effort [reasoning] --mcp-config [mcp_config_path] --strict-mcp-config --permission-mode bypassPermissions --output-format json [prompt]",
+    "resume_interactive": "claude --resume [external_session_id] [prompt]",
+    "resume_headless": "claude --print --resume [external_session_id] --model [model] --effort [reasoning] --mcp-config [mcp_config_path] --strict-mcp-config --permission-mode bypassPermissions --output-format json [prompt]"
+  }
+}

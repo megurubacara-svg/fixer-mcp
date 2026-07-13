@@ -289,7 +289,7 @@ func TestResolveSessionLaunchConfig_RejectsUnsupportedDroidModel(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported droid model error")
 	}
-	if !strings.Contains(err.Error(), "supported models: kimi-k2.6, glm-5.1") {
+	if !strings.Contains(err.Error(), "supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -314,7 +314,7 @@ func TestResolveSessionLaunchConfig_RejectsUnsupportedJunieModel(t *testing.T) {
 	if !strings.Contains(err.Error(), `unsupported junie model "gpt-5.3-codex"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "supported models: kimi-k2.6, glm-5.1") {
+	if !strings.Contains(err.Error(), "supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -468,7 +468,7 @@ func TestResolveSessionLaunchConfig_DefaultsDroidToHumanModelAlias(t *testing.T)
 	}
 }
 
-func TestResolveSessionLaunchConfig_DefaultsCodexToGpt54Xhigh(t *testing.T) {
+func TestResolveSessionLaunchConfig_DefaultsCodexToGpt56LunaXhigh(t *testing.T) {
 	originalDB := db
 	defer func() {
 		db = originalDB
@@ -485,7 +485,7 @@ func TestResolveSessionLaunchConfig_DefaultsCodexToGpt54Xhigh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSessionLaunchConfig failed: %v", err)
 	}
-	if config.Backend != "codex" || config.Model != "gpt-5.5" || config.Reasoning != "high" {
+	if config.Backend != "codex" || config.Model != "gpt-5.6-luna" || config.Reasoning != "xhigh" {
 		t.Fatalf("unexpected default launch config: %+v", config)
 	}
 
@@ -497,7 +497,7 @@ func TestResolveSessionLaunchConfig_DefaultsCodexToGpt54Xhigh(t *testing.T) {
 	).Scan(&storedBackend, &storedModel, &storedReasoning); err != nil {
 		t.Fatalf("read persisted launch config: %v", err)
 	}
-	if storedBackend != "codex" || storedModel != "gpt-5.5" || storedReasoning != "high" {
+	if storedBackend != "codex" || storedModel != "gpt-5.6-luna" || storedReasoning != "xhigh" {
 		t.Fatalf("unexpected persisted default launch config: backend=%q model=%q reasoning=%q", storedBackend, storedModel, storedReasoning)
 	}
 }
@@ -911,7 +911,8 @@ func TestLaunchExplicitNetrunnerWithMetadata_AllowsConcurrentWorkerForDifferentS
 	}
 
 	metadata, err := launchExplicitNetrunnerWithMetadata(context.Background(), LaunchExplicitNetrunnerInput{
-		SessionId: 2,
+		SessionId:             2,
+		PlaywrightRuntimeMode: "chrome",
 	})
 	if err != nil {
 		t.Fatalf("expected concurrent launch to succeed for a different session, got: %v", err)
@@ -925,6 +926,9 @@ func TestLaunchExplicitNetrunnerWithMetadata_AllowsConcurrentWorkerForDifferentS
 	if !containsString(gotArgs, "--suppress-autonomous-wake") {
 		t.Fatalf("expected explicit launch command to suppress autonomous wake, got %+v", gotArgs)
 	}
+	if !containsString(gotArgs, "--playwright-runtime-mode") || !containsString(gotArgs, "chrome") {
+		t.Fatalf("expected explicit launch command to request Playwright chrome runtime, got %+v", gotArgs)
+	}
 	globalSessionID, err := globalSessionIDFromProjectScoped(2, 1)
 	if err != nil {
 		t.Fatalf("map launched session: %v", err)
@@ -935,6 +939,21 @@ func TestLaunchExplicitNetrunnerWithMetadata_AllowsConcurrentWorkerForDifferentS
 	}
 	if launchOrigin != "explicit-wait" {
 		t.Fatalf("expected explicit-wait worker launch origin, got %q", launchOrigin)
+	}
+}
+
+func TestNormalizeExplicitPlaywrightRuntimeMode(t *testing.T) {
+	for _, mode := range []string{"", "default", "headless", "chrome", "headless-profile"} {
+		got, err := normalizeExplicitPlaywrightRuntimeMode("  " + strings.ToUpper(mode) + "  ")
+		if err != nil {
+			t.Fatalf("expected %q to be accepted: %v", mode, err)
+		}
+		if got != mode {
+			t.Fatalf("expected normalized mode %q, got %q", mode, got)
+		}
+	}
+	if _, err := normalizeExplicitPlaywrightRuntimeMode("persistent-ish"); err == nil || !strings.Contains(err.Error(), "headless-profile") {
+		t.Fatalf("expected unsupported mode to fail with canonical choices, got %v", err)
 	}
 }
 

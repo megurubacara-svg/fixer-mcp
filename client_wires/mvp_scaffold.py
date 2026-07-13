@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Callable
 
 SERVERPOD_COMMAND = "serverpod"
-DEFAULT_CODEX_MODEL = "gpt-5.5"
-DEFAULT_CODEX_EFFORT = "high"
+DEFAULT_CODEX_MODEL = "gpt-5.6-luna"
+DEFAULT_CODEX_EFFORT = "xhigh"
 
 
 @dataclass(frozen=True)
@@ -425,8 +425,14 @@ def _render_codex_model_layer() -> str:
             allowed_efforts: [low, medium, high, extra_high]
             models:
               - {DEFAULT_CODEX_MODEL}
+              - gpt-5.6-sol
+              - gpt-5.6-terra
+              - gpt-5.5
+              - gpt-5.4
+              - gpt-5.4-mini
               - gpt-5.3-codex
               - gpt-5.3-codex-spark
+              - gpt-5.2
         """
     ).lstrip()
 

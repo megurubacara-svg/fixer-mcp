@@ -502,6 +502,30 @@ class FixerMcpEnvBindingTests(unittest.TestCase):
         )
         self.assertEqual(bound["sqlite"], {"command": "/tmp/sqlite"})
 
+    def test_bind_locked_fixer_role_includes_gate_auth_context(self) -> None:
+        selected = {
+            "fixer_mcp": {
+                "command": "/tmp/fixer_mcp",
+                "env": {"TOKEN": "secret"},
+            },
+        }
+
+        bound = fixer_wire._bind_locked_role_to_server_env(
+            selected,
+            role="fixer",
+            project_cwd=Path("/tmp/project"),
+        )
+
+        self.assertEqual(
+            bound["fixer_mcp"]["env"],
+            {
+                "FIXER_MCP_DEFAULT_CWD": str(Path("/tmp/project").resolve()),
+                "FIXER_MCP_DEFAULT_ROLE": "fixer",
+                "FIXER_MCP_LOCKED_ROLE": "fixer",
+                "TOKEN": "secret",
+            },
+        )
+
     def test_launch_fresh_role_session_locks_forced_fixer_mcp_role(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)

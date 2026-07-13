@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestBootstrapDefaultNetrunnerAuthFromEnv(t *testing.T) {
+func TestBootstrapDefaultRoleAuthFromEnvForNetrunner(t *testing.T) {
 	originalDB := db
 	originalRole := authorizedRole
 	originalProjectID := authorizedProjectId
@@ -40,7 +40,7 @@ func TestBootstrapDefaultNetrunnerAuthFromEnv(t *testing.T) {
 		defer os.Unsetenv(key)
 	}
 
-	bootstrapDefaultNetrunnerAuthFromEnv()
+	bootstrapDefaultRoleAuthFromEnv()
 
 	if authorizedRole != "netrunner" {
 		t.Fatalf("expected env bootstrap role netrunner, got %q", authorizedRole)
@@ -50,6 +50,65 @@ func TestBootstrapDefaultNetrunnerAuthFromEnv(t *testing.T) {
 	}
 	if authorizedSessionId != 0 {
 		t.Fatalf("expected env bootstrap session reset to 0, got %d", authorizedSessionId)
+	}
+}
+
+func TestBootstrapDefaultRoleAuthFromEnvForFixerGate(t *testing.T) {
+	originalDB := db
+	originalRole := authorizedRole
+	originalProjectID := authorizedProjectId
+	originalSessionID := authorizedSessionId
+	defer func() {
+		db = originalDB
+		authorizedRole = originalRole
+		authorizedProjectId = originalProjectID
+		authorizedSessionId = originalSessionID
+	}()
+
+	testDB := setupGetProjectsTestDB(t)
+	defer func() {
+		_ = testDB.Close()
+	}()
+
+	t.Setenv(fixerMcpDefaultRoleEnv, "fixer")
+	t.Setenv(fixerMcpDefaultCwdEnv, testProjectCWD)
+	t.Setenv(fixerMcpLockedRoleEnv, "fixer")
+	t.Setenv(fixerMcpAutoAuthEnv, "1")
+	t.Setenv(fixerMcpToolProfileEnv, netrunnerGateProfile)
+	db = testDB
+	authorizedRole = ""
+	authorizedProjectId = 0
+	authorizedSessionId = 999
+
+	bootstrapDefaultRoleAuthFromEnv()
+
+	if authorizedRole != "fixer" || authorizedProjectId != 1 || authorizedSessionId != 0 {
+		t.Fatalf("unexpected fixer gate auth state: role=%q project=%d session=%d", authorizedRole, authorizedProjectId, authorizedSessionId)
+	}
+}
+
+func TestBootstrapDefaultRoleAuthRejectsOrdinaryFixerServer(t *testing.T) {
+	originalRole := authorizedRole
+	originalProjectID := authorizedProjectId
+	originalSessionID := authorizedSessionId
+	defer func() {
+		authorizedRole = originalRole
+		authorizedProjectId = originalProjectID
+		authorizedSessionId = originalSessionID
+	}()
+
+	t.Setenv(fixerMcpDefaultRoleEnv, "fixer")
+	t.Setenv(fixerMcpDefaultCwdEnv, testProjectCWD)
+	t.Setenv(fixerMcpLockedRoleEnv, "fixer")
+	t.Setenv(fixerMcpAutoAuthEnv, "1")
+	authorizedRole = ""
+	authorizedProjectId = 0
+	authorizedSessionId = 999
+
+	bootstrapDefaultRoleAuthFromEnv()
+
+	if authorizedRole != "" || authorizedProjectId != 0 || authorizedSessionId != 999 {
+		t.Fatalf("ordinary fixer server must not auto-auth: role=%q project=%d session=%d", authorizedRole, authorizedProjectId, authorizedSessionId)
 	}
 }
 
@@ -185,20 +244,20 @@ func TestLockedRoleToolSurfacesHideForeignAndAdminTools(t *testing.T) {
 		{
 			name:       "overseer",
 			lockedRole: "overseer",
-			present:    []string{"assume_role", "get_projects", "launch_and_wait_fixers", "append_overseer_fixer_message"},
-			absent:     []string{"create_task", "checkout_task", "log_netrunner_progress", "view_netrunner_logs", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous"},
+			present:    []string{"assume_role", "get_projects", "launch_and_wait_fixers", "append_overseer_fixer_message", "get_project_balance", "credit_project_balance", "set_fixer_spend_authority", "get_balance_ledger"},
+			absent:     []string{"create_task", "checkout_task", "log_netrunner_progress", "view_netrunner_logs", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous", "record_fixer_spend"},
 		},
 		{
 			name:       "fixer",
 			lockedRole: "fixer",
-			present:    []string{"assume_role", "create_task", "view_netrunner_logs", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "review_doc_proposals"},
-			absent:     []string{"get_projects", "checkout_task", "log_netrunner_progress", "complete_task", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous"},
+			present:    []string{"assume_role", "create_task", "view_netrunner_logs", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "review_doc_proposals", "get_project_balance", "record_fixer_spend", "get_balance_ledger"},
+			absent:     []string{"get_projects", "checkout_task", "log_netrunner_progress", "complete_task", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous", "credit_project_balance", "set_fixer_spend_authority"},
 		},
 		{
 			name:       "netrunner",
 			lockedRole: "netrunner",
 			present:    []string{"assume_role", "checkout_task", "log_netrunner_progress", "complete_task", "wake_fixer_autonomous"},
-			absent:     []string{"get_projects", "create_task", "view_netrunner_logs", "review_doc_proposals", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff"},
+			absent:     []string{"get_projects", "create_task", "view_netrunner_logs", "review_doc_proposals", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "get_project_balance", "credit_project_balance", "set_fixer_spend_authority", "record_fixer_spend", "get_balance_ledger"},
 		},
 	}
 
@@ -222,6 +281,22 @@ func TestLockedRoleToolSurfacesHideForeignAndAdminTools(t *testing.T) {
 	}
 }
 
+func TestNetrunnerGateToolSurfaceContainsOnlyBlockingOrchestration(t *testing.T) {
+	expected := []string{
+		launchAndWaitNetrunnerToolName,
+		launchNetrunnerWaveToolName,
+		waitForNetrunnerWaveToolName,
+	}
+	if len(netrunnerGateToolNames) != len(expected) {
+		t.Fatalf("unexpected direct Netrunner gate surface: %#v", netrunnerGateToolNames)
+	}
+	for index, name := range expected {
+		if netrunnerGateToolNames[index] != name {
+			t.Fatalf("unexpected direct Netrunner gate surface: %#v", netrunnerGateToolNames)
+		}
+	}
+}
+
 func TestUnlockedToolSurfaceKeepsLegacyBroadTools(t *testing.T) {
 	toolSet := make(map[string]struct{})
 	for _, name := range registeredToolNamesForMode("") {
@@ -241,6 +316,11 @@ func TestUnlockedToolSurfaceKeepsLegacyBroadTools(t *testing.T) {
 		"wait_for_netrunner_wave",
 		"cleanup_netrunner_wave",
 		"wake_fixer_autonomous",
+		"get_project_balance",
+		"credit_project_balance",
+		"set_fixer_spend_authority",
+		"record_fixer_spend",
+		"get_balance_ledger",
 		"sync_mcp_servers",
 		"clear_project_handoff",
 	} {
@@ -311,7 +391,7 @@ func TestAuthRoleHandlersLiveOutsideMain(t *testing.T) {
 		"func isValidAssumableRole(",
 		"func lockedRoleFromEnv(",
 		"var defaultRolePreprompts",
-		"func bootstrapDefaultNetrunnerAuthFromEnv(",
+		"func bootstrapDefaultRoleAuthFromEnv(",
 		"type AssumeRoleInput",
 		"type AssumeRoleOutput",
 		"func AssumeRole(",

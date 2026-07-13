@@ -40,29 +40,18 @@ Prerequisites:
 - Node.js for the bridge and Docker smoke flows
 - Codex CLI authenticated if you want Codex-backed worker launches
 
-Build the MCP server:
+Install and verify the repository-native launcher and MCP server:
 
 ```bash
-cd fixer_mcp
-go build ./...
+make install-verify
 ```
 
-Run the server locally:
+See `AGENTS_INSTALLATION.md` for Ubuntu/macOS prerequisites, PATH handling, updates, and explicit acceptance criteria. The installer does not edit shell startup files.
+
+Start with one project by launching the Fixer role from that project's root. The launcher creates the project record automatically when the cwd is new:
 
 ```bash
-go run .
-```
-
-Set a shell alias if you want a short entry point (replace the path with your checkout location):
-
-```bash
-alias fixer='python3 /path/to/fixer-mcp/client_wires/fixer_wire.py'
-```
-
-Start with one project by launching the Fixer role and registering the project root through the MCP tools exposed by the server:
-
-```bash
-python3 client_wires/fixer_wire.py --role fixer
+fixer --role fixer
 ```
 
 ## Documentation Map
@@ -72,6 +61,7 @@ python3 client_wires/fixer_wire.py --role fixer
 - `.agents/skills/`: canonical role workflows used by Fixer, Netrunner, and Overseer.
 - `docs/README.md`: public docs index.
 - `docs/docker-smoke.md`: clean smoke and bootstrap E2E notes.
+- `AGENTS_INSTALLATION.md`: receiving-agent installation and verification contract.
 - `docker/`: validation containers and scripts.
 
 ## Validation
@@ -80,10 +70,9 @@ python3 client_wires/fixer_wire.py --role fixer
 python3 -m unittest discover -s client_wires/tests
 cd fixer_mcp && go build ./... && env -u FIXER_MCP_LOCKED_ROLE go test ./...
 make docker-smoke
-make docker-bootstrap-e2e
 ```
 
-`docker-smoke` is the deterministic clean check. `docker-bootstrap-e2e` is a heavier end-to-end path that depends on Docker, network access, and authenticated CLI state.
+`docker-smoke` is the deterministic clean check used in CI. `docker-bootstrap-e2e` is an optional manual end-to-end path that depends on Docker, network access, and authenticated Codex CLI state.
 
 ## Current State
 

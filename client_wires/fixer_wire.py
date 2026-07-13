@@ -92,8 +92,8 @@ FIXER_MCP_BINARY_ENV = fixer_wire_mcp.FIXER_MCP_BINARY_ENV
 PRIMARY_FIXER_DB_FILENAME = "fixer.db"
 WEB_MCP_CONFIG_FILENAME = fixer_wire_mcp.WEB_MCP_CONFIG_FILENAME
 FIXER_MCP_AUTOBUILD_SKIP_ENV = fixer_wire_mcp.FIXER_MCP_AUTOBUILD_SKIP_ENV
-FIXER_WIRE_MODEL = "gpt-5.5"
-FIXER_WIRE_REASONING_EFFORT = "high"
+FIXER_WIRE_MODEL = "gpt-5.6-luna"
+FIXER_WIRE_REASONING_EFFORT = "xhigh"
 FORCED_FIXER_MCP_TIMEOUT_FLOOR_SEC = fixer_wire_mcp.FORCED_FIXER_MCP_TIMEOUT_FLOOR_SEC
 FORCED_FIXER_MCP_TIMEOUT_FLOOR_MS = fixer_wire_mcp.FORCED_FIXER_MCP_TIMEOUT_FLOOR_MS
 _FIXER_MCP_BUILD_CHECKED = fixer_wire_mcp._FIXER_MCP_BUILD_CHECKED
@@ -185,8 +185,13 @@ def _bind_locked_role_to_server_env(
     selected_servers: dict[str, dict[str, object]],
     *,
     role: str,
+    project_cwd: Path | None = None,
 ) -> dict[str, dict[str, object]]:
-    return fixer_wire_mcp._bind_locked_role_to_server_env(selected_servers, role=role)
+    return fixer_wire_mcp._bind_locked_role_to_server_env(
+        selected_servers,
+        role=role,
+        project_cwd=project_cwd,
+    )
 
 
 def _bind_netrunner_stateless_auth_to_server_env(
@@ -963,12 +968,14 @@ def _maybe_configure_playwright_runtime_mode(
     available_servers: dict[str, dict[str, object]],
     *,
     interactive: bool,
+    runtime_mode: str | None = None,
 ) -> str | None:
     return fixer_wire_launch_support._maybe_configure_playwright_runtime_mode(
         adapter,
         selected_servers,
         available_servers,
         interactive=interactive,
+        runtime_mode=runtime_mode,
     )
 
 

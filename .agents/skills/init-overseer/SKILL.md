@@ -34,4 +34,8 @@ The Overseer sees projects across the workspace, answers high-level questions, r
 
 ## Worker Policy
 
-When recommending Netrunner launches, default to `gpt-5.5` with `high` reasoning. Use lighter or heavier settings only when the task risk clearly calls for it.
+When recommending Netrunner workers, choose:
+- simplest tasks: `codex` + `gpt-5.6-luna` + `high`
+- medium-complexity tasks: `codex` + `gpt-5.6-terra` + `high`
+- complex tasks: `codex` + `gpt-5.6-sol` + `medium`
+- hardest tasks: `codex` + `gpt-5.6-sol` + `xhigh`

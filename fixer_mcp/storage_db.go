@@ -279,6 +279,34 @@ func initDB() {
 		);
 		CREATE UNIQUE INDEX IF NOT EXISTS project_overview_project_unique_idx ON project_overview(project_id);
 		CREATE INDEX IF NOT EXISTS project_overview_project_idx ON project_overview(project_id);
+		CREATE TABLE IF NOT EXISTS project_balance (
+			project_id INTEGER NOT NULL UNIQUE,
+			balance_units INTEGER NOT NULL DEFAULT 0,
+			currency TEXT NOT NULL DEFAULT 'usd',
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE ON UPDATE NO ACTION
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS project_balance_project_unique_idx ON project_balance(project_id);
+		CREATE TABLE IF NOT EXISTS fixer_spend_authority (
+			project_id INTEGER NOT NULL UNIQUE,
+			enabled INTEGER NOT NULL DEFAULT 0,
+			allowance_units INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE ON UPDATE NO ACTION
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS fixer_spend_authority_project_unique_idx ON fixer_spend_authority(project_id);
+		CREATE TABLE IF NOT EXISTS balance_ledger (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id INTEGER NOT NULL,
+			delta_units INTEGER NOT NULL,
+			kind TEXT NOT NULL CHECK(kind IN ('credit', 'spend', 'authority_grant')),
+			reason TEXT NOT NULL,
+			actor_role TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE ON UPDATE NO ACTION
+		);
+		CREATE INDEX IF NOT EXISTS balance_ledger_project_id_idx ON balance_ledger(project_id, id);
+		CREATE INDEX IF NOT EXISTS balance_ledger_kind_idx ON balance_ledger(project_id, kind, id);
 		CREATE TABLE IF NOT EXISTS overseer_fixer_message (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			project_id INTEGER NOT NULL,
@@ -456,6 +484,40 @@ func initDB() {
 	`)
 	_, _ = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS project_overview_project_unique_idx ON project_overview(project_id);`)
 	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS project_overview_project_idx ON project_overview(project_id);`)
+	_, _ = db.Exec(`
+		CREATE TABLE IF NOT EXISTS project_balance (
+			project_id INTEGER NOT NULL UNIQUE,
+			balance_units INTEGER NOT NULL DEFAULT 0,
+			currency TEXT NOT NULL DEFAULT 'usd',
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE ON UPDATE NO ACTION
+		);
+	`)
+	_, _ = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS project_balance_project_unique_idx ON project_balance(project_id);`)
+	_, _ = db.Exec(`
+		CREATE TABLE IF NOT EXISTS fixer_spend_authority (
+			project_id INTEGER NOT NULL UNIQUE,
+			enabled INTEGER NOT NULL DEFAULT 0,
+			allowance_units INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE ON UPDATE NO ACTION
+		);
+	`)
+	_, _ = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS fixer_spend_authority_project_unique_idx ON fixer_spend_authority(project_id);`)
+	_, _ = db.Exec(`
+		CREATE TABLE IF NOT EXISTS balance_ledger (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			project_id INTEGER NOT NULL,
+			delta_units INTEGER NOT NULL,
+			kind TEXT NOT NULL CHECK(kind IN ('credit', 'spend', 'authority_grant')),
+			reason TEXT NOT NULL,
+			actor_role TEXT NOT NULL,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY(project_id) REFERENCES project(id) ON DELETE CASCADE ON UPDATE NO ACTION
+		);
+	`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS balance_ledger_project_id_idx ON balance_ledger(project_id, id);`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS balance_ledger_kind_idx ON balance_ledger(project_id, kind, id);`)
 	_, _ = db.Exec(`
 		CREATE TABLE IF NOT EXISTS overseer_fixer_message (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

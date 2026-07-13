@@ -12,6 +12,9 @@ const (
 	fixerMcpDefaultRoleEnv = "FIXER_MCP_DEFAULT_ROLE"
 	fixerMcpDefaultCwdEnv  = "FIXER_MCP_DEFAULT_CWD"
 	fixerMcpLockedRoleEnv  = "FIXER_MCP_LOCKED_ROLE"
+	fixerMcpAutoAuthEnv    = "FIXER_MCP_AUTO_AUTH"
+	fixerMcpToolProfileEnv = "FIXER_MCP_TOOL_PROFILE"
+	netrunnerGateProfile   = "netrunner_gate"
 	defaultFixerDBFilename = "fixer.db"
 )
 

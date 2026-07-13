@@ -56,6 +56,10 @@ def _codex_sessions_root() -> Path:
     return Path.home() / ".codex" / "sessions"
 
 
+def _antigravity_cli_log_root() -> Path:
+    return Path.home() / ".gemini" / "antigravity-cli" / "log"
+
+
 def _extract_droid_record_type(payload: object) -> str:
     if not isinstance(payload, dict):
         return ""
@@ -247,6 +251,98 @@ def _find_new_droid_session_id_from_factory_store(
     return None
 
 
+_ANTIGRAVITY_CONVERSATION_ID_RE = re.compile(
+    r"\b(?:conversation=|Created conversation |Streaming conversation |Resuming conversation )"
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b"
+)
+
+
+def _extract_antigravity_conversation_id_from_line(raw_line: str) -> str | None:
+    match = _ANTIGRAVITY_CONVERSATION_ID_RE.search(raw_line)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _candidate_antigravity_cli_log_paths(
+    log_root: Path,
+    *,
+    launch_started_at: float | None,
+) -> list[Path]:
+    if not log_root.is_dir():
+        return []
+
+    cutoff = (launch_started_at - 1.0) if launch_started_at is not None else None
+    candidates: list[tuple[float, Path]] = []
+    for path in log_root.glob("cli-*.log"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if cutoff is not None and stat.st_mtime < cutoff:
+            continue
+        candidates.append((stat.st_mtime, path))
+    return [path for _mtime, path in sorted(candidates, reverse=True)]
+
+
+def _antigravity_conversation_id_from_cli_log(path: Path, cwd: Path) -> str | None:
+    expected_cwd = str(cwd.resolve())
+    matched_workspace = False
+    conversation_id: str | None = None
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                if "workspaceDirs=[" in raw_line and expected_cwd in raw_line:
+                    matched_workspace = True
+                    if conversation_id:
+                        return conversation_id
+
+                extracted_id = _extract_antigravity_conversation_id_from_line(raw_line)
+                if extracted_id:
+                    conversation_id = extracted_id
+                    if matched_workspace:
+                        return conversation_id
+    except OSError:
+        return None
+    return conversation_id if matched_workspace else None
+
+
+def _find_new_antigravity_conversation_id_from_cli_logs(
+    cwd: Path,
+    *,
+    launch_started_at: float | None,
+    log_root: Path | None = None,
+    antigravity_cli_log_root_fn: Callable[[], Path] = _antigravity_cli_log_root,
+) -> str | None:
+    root = log_root if log_root is not None else antigravity_cli_log_root_fn()
+    for path in _candidate_antigravity_cli_log_paths(root, launch_started_at=launch_started_at):
+        conversation_id = _antigravity_conversation_id_from_cli_log(path, cwd)
+        if conversation_id:
+            return conversation_id
+    return None
+
+
+def _wait_for_new_antigravity_conversation_id(
+    cwd: Path,
+    *,
+    launch_started_at: float | None = None,
+    timeout_sec: float = 8.0,
+    find_new_antigravity_conversation_id_from_cli_logs_fn: Callable[..., str | None] = (
+        _find_new_antigravity_conversation_id_from_cli_logs
+    ),
+) -> str | None:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        conversation_id = find_new_antigravity_conversation_id_from_cli_logs_fn(
+            cwd,
+            launch_started_at=launch_started_at,
+        )
+        if conversation_id:
+            return conversation_id
+        time.sleep(0.5)
+    return None
+
+
 def _wait_for_new_droid_session_id(
     log_path: Path,
     cwd: Path,
@@ -310,6 +406,7 @@ def _wait_for_new_external_session_id(
     normalize_backend_name_fn: Callable[[str], str],
     wait_for_new_codex_session_id_fn: Callable[..., str | None],
     wait_for_new_droid_session_id_fn: Callable[..., str | None],
+    wait_for_new_antigravity_conversation_id_fn: Callable[..., str | None],
 ) -> str | None:
     normalized_backend = normalize_backend_name_fn(backend)
     if normalized_backend == "codex":
@@ -317,6 +414,12 @@ def _wait_for_new_external_session_id(
     if normalized_backend == "droid":
         return wait_for_new_droid_session_id_fn(
             log_path,
+            cwd,
+            launch_started_at=launch_started_at,
+            timeout_sec=timeout_sec,
+        )
+    if normalized_backend == "antigravity":
+        return wait_for_new_antigravity_conversation_id_fn(
             cwd,
             launch_started_at=launch_started_at,
             timeout_sec=timeout_sec,

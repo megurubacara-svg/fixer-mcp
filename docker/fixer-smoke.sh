@@ -34,9 +34,9 @@ install -m 0755 "${BUILD_DIR}/fixer_mcp" "${SMOKE_BINARY}"
 
 echo "[smoke] focused client_wires non-interactive tests"
 python3 -m unittest \
-  client_wires.tests.test_fixer_wire.ResolveFixerDbPathTests \
-  client_wires.tests.test_fixer_wire.ResolveProjectIdTests \
-  client_wires.tests.test_fixer_wire.ForcedFixerSpecTests
+  client_wires.tests.test_fixer_wire_db.ResolveFixerDbPathTests \
+  client_wires.tests.test_fixer_wire_db.ResolveProjectIdTests \
+  client_wires.tests.test_fixer_wire_mcp.ForcedFixerSpecTests
 
 echo "[smoke] node bridge tests"
 (

@@ -956,7 +956,7 @@ class LaunchNetrunnerResumeFlowTests(unittest.TestCase):
         self.assertFalse(any("Droid MCP tool guidance:" in item for item in cmd))
         self.assertFalse(any("Attached MCP how-to guidance:" in item for item in cmd))
         self.assertFalse(any("Standard web stack guidance:" in item for item in cmd))
-        self.assertTrue(any("checkout_task" in item for item in cmd))
+        self.assertTrue(any("Run the initialization checklist for session" in item for item in cmd))
         self.assertFalse(any("mcp_fixer_mcp_checkout_task" in item for item in cmd))
         self.assertEqual(call_kwargs["cwd"], str(Path.cwd()))
         self.assertEqual(session_row, ("droid", "glm-5.1", "medium"))
@@ -1026,7 +1026,7 @@ class LaunchNetrunnerResumeFlowTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         cmd = mock_call.call_args.args[0]
-        self.assertEqual(session_row, ("antigravity", "Gemini 3.5 Flash (High)", "default"))
+        self.assertEqual(session_row, ("antigravity", "Gemini 3.5 Flash", "high"))
         self.assertEqual(external_link, [("antigravity", "agy-conversation-139")])
         self.assertEqual(cmd[0], "agy")
         self.assertIn("--model", cmd)
@@ -1035,7 +1035,7 @@ class LaunchNetrunnerResumeFlowTests(unittest.TestCase):
         self.assertNotIn("--print", cmd)
         self.assertIn("--prompt-interactive", cmd)
         prompt = cmd[cmd.index("--prompt-interactive") + 1]
-        self.assertTrue(prompt.startswith("Use the `run-manual-netrunner` skill immediately.\n"))
+        self.assertTrue(prompt.startswith("/run-manual-netrunner\n"))
         self.assertNotIn("Activate skill `$run-manual-netrunner` immediately.", prompt)
         self.assertIn("fixer_mcp.log_netrunner_progress", prompt)
 

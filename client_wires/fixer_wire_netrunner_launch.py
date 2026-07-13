@@ -339,6 +339,15 @@ def launch_netrunner(
         print(f"[fixer-wire] resuming {launch_selection.backend} session id: {resume_external_session_id}")
     print(f"[fixer-wire] netrunner MCP selection: {', '.join(selected_mcp_names) if selected_mcp_names else 'none'}")
     print("[fixer-wire] command:", codex_cmd)
+    if launch_selection.backend == "kimi-code" and prompt and not resume_external_session_id and not dry_run:
+        print("[fixer-wire] kimi shell mode cannot auto-submit; paste the following into the Kimi TUI:")
+        print(prompt)
+        try:
+            import subprocess as _subprocess
+            _subprocess.run(["pbcopy"], input=prompt.encode("utf-8"), check=False)
+            print("[fixer-wire] (bootstrap prompt copied to clipboard — paste with Cmd+V)")
+        except Exception:
+            pass
     if dry_run:
         return 0
     before_matches: set[str] = set()

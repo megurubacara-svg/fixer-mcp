@@ -1,0 +1,56 @@
+{
+  "provider": "kimi-code",
+  "label": "Kimi Code CLI",
+  "description": "Moonshot Kimi Code CLI provider for the Fixer MCP provider-adapter abstraction. Requires explicit --mcp-config-file to surface project-local MCP servers in headless mode.",
+  "models": {
+    "options": [
+      "kimi-k2.7-code"
+    ],
+    "default": "kimi-k2.7-code",
+    "internal_id_map": {
+      "kimi-k2.7-code": "kimi-code/kimi-for-coding"
+    },
+    "byok": true,
+    "auth": "byok"
+  },
+  "reasoning": {
+    "options": [
+      "default"
+    ],
+    "default": "default",
+    "pass_mechanism": "none"
+  },
+  "skills": {
+    "inject_dir": ".kimi/skills",
+    "scope_strategy": "none",
+    "scope_flags": []
+  },
+  "mcp": {
+    "config_format": "mcp-config-file",
+    "scope_strategy": "mcp-config-file",
+    "scope_flags": [
+      "--mcp-config-file"
+    ]
+  },
+  "tool_registration": "native",
+  "permissions": {
+    "interactive_auto_approve_flags": [
+      "--yolo"
+    ],
+    "headless_auto_approve_flags": [
+      "--print"
+    ],
+    "headless_auto_approve_justification": "Kimi --print implies --afk, which auto-approves tool calls and auto-dismisses AskUserQuestion prompts."
+  },
+  "operator_questions": {
+    "supported": true,
+    "mechanism": "AskUserQuestion",
+    "headless_auto_approve_dismisses": true
+  },
+  "launch": {
+    "interactive_cmd_template": "kimi-cli -m [model] --mcp-config-file [mcp_config_path] --yolo [prompt]",
+    "headless_cmd_template": "kimi-cli --print --yolo -m [model] --mcp-config-file [mcp_config_path] -p \"[prompt]\"",
+    "resume_interactive": "kimi-cli --session [external_session_id] -m [model] --mcp-config-file [mcp_config_path] --yolo [prompt]",
+    "resume_headless": "kimi-cli --print --yolo --session [external_session_id] -m [model] --mcp-config-file [mcp_config_path] -p \"[prompt]\""
+  }
+}

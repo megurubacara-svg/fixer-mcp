@@ -47,7 +47,7 @@ Useful overrides:
 
 ```bash
 DOCKER_BOOTSTRAP_E2E_AUTH_PATH=/path/to/auth.json make docker-bootstrap-e2e
-BOOTSTRAP_E2E_MODEL=gpt-5.5 BOOTSTRAP_E2E_REASONING=high make docker-bootstrap-e2e
+BOOTSTRAP_E2E_MODEL=gpt-5.6-luna BOOTSTRAP_E2E_REASONING=xhigh make docker-bootstrap-e2e
 BOOTSTRAP_E2E_TIMEOUT_SECONDS=5400 make docker-bootstrap-e2e
 ```
 

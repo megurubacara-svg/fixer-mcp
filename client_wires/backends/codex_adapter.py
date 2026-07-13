@@ -6,6 +6,13 @@ from typing import Any, Mapping, Sequence
 from .base import BackendAdapter, BackendDescriptor, FIXER_ROLE_SKILL_NAMES, materialize_codex_project_skills
 from .catalog import load_backend_entry
 
+_FIXER_MCP_SERVER = "fixer_mcp"
+_FIXER_GATE_SERVER = "fixer_netrunner_gate"
+_FIXER_GATE_TOOLS_TOML = (
+    '["launch_and_wait_netrunner","launch_netrunner_wave","wait_for_netrunner_wave"]'
+)
+_FIXER_GATE_PROFILE = "netrunner_gate"
+
 
 class CodexBackendAdapter(BackendAdapter):
     def __init__(self, inner: Any) -> None:
@@ -38,11 +45,42 @@ class CodexBackendAdapter(BackendAdapter):
     ) -> list[str]:
         selected_payload = {name: dict(config) for name, config in selected.items()}
         available_payload = {name: dict(config) for name, config in available.items()}
+        fixer_spec = selected_payload.get(_FIXER_MCP_SERVER)
+        gate_enabled = False
+        if fixer_spec is not None:
+            raw_env = fixer_spec.get("env")
+            fixer_env = dict(raw_env) if isinstance(raw_env, dict) else {}
+            gate_enabled = (
+                fixer_env.get("FIXER_MCP_LOCKED_ROLE") == "fixer"
+                and fixer_env.get("FIXER_MCP_DEFAULT_ROLE") == "fixer"
+                and bool(str(fixer_env.get("FIXER_MCP_DEFAULT_CWD", "")).strip())
+            )
+            if gate_enabled:
+                gate_spec = dict(fixer_spec)
+                gate_env = dict(fixer_env)
+                gate_env["FIXER_MCP_AUTO_AUTH"] = "1"
+                gate_env["FIXER_MCP_TOOL_PROFILE"] = _FIXER_GATE_PROFILE
+                gate_spec["env"] = gate_env
+                gate_spec["_source"] = "project_mcp"
+                selected_payload[_FIXER_GATE_SERVER] = gate_spec
+                available_payload[_FIXER_GATE_SERVER] = gate_spec
         # The legacy Codex adapter renders details such as env/cwd from the
         # available-server map. Keep selected authoritative for launch-time
         # mutations like FIXER_DB_PATH and FIXER_MCP_LOCKED_ROLE.
         available_payload.update(selected_payload)
-        return list(self._inner.build_mcp_flags(selected_payload, available_payload))
+        flags = list(self._inner.build_mcp_flags(selected_payload, available_payload))
+        if gate_enabled:
+            flags.extend(
+                [
+                    "-c",
+                    f"mcp_servers.{_FIXER_GATE_SERVER}.enabled_tools={_FIXER_GATE_TOOLS_TOML}",
+                    "-c",
+                    f"mcp_servers.{_FIXER_MCP_SERVER}.disabled_tools={_FIXER_GATE_TOOLS_TOML}",
+                    "-c",
+                    f'features.code_mode.direct_only_tool_namespaces=["mcp__{_FIXER_GATE_SERVER}"]',
+                ]
+            )
+        return flags
 
     def build_prompt_args(self, prompt: str) -> list[str]:
         return list(self._inner.build_prompt_args(prompt))

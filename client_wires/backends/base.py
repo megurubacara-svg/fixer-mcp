@@ -25,6 +25,8 @@ FIXER_ROLE_SKILL_NAMES = (
     "refresh-project-overview",
     "run-fixer-image-job",
     "figma-frontend-works",
+    "shadcn-ui-flutter",
+    "design-system-works",
 )
 FIXER_RETIRED_SKILL_NAMES = (
     "init-netrunner",

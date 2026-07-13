@@ -9,9 +9,10 @@ from .claude_adapter import ClaudeCodeBackendAdapter
 from .codex_adapter import CodexBackendAdapter
 from .droid_adapter import DroidBackendAdapter
 from .junie_adapter import JunieBackendAdapter
+from .kimi_code_adapter import KimiCodeBackendAdapter
 
 
-SUPPORTED_BACKENDS = ("codex", "droid", "claude", "antigravity", "junie")
+SUPPORTED_BACKENDS = ("codex", "droid", "claude", "antigravity", "junie", "kimi-code")
 
 
 def available_backend_descriptors() -> list[BackendDescriptor]:
@@ -46,6 +47,8 @@ def get_backend_adapter(name: str | None, *, codex_adapter: Any) -> BackendAdapt
         return AntigravityBackendAdapter()
     if normalized == "junie":
         return JunieBackendAdapter()
+    if normalized == "kimi-code":
+        return KimiCodeBackendAdapter()
     supported = ", ".join(SUPPORTED_BACKENDS)
     raise RuntimeError(f"Unsupported CLI backend {name!r}. Supported backends: {supported}")
 

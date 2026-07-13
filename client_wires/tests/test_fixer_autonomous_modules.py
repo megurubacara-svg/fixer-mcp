@@ -69,6 +69,62 @@ class FixerAutonomousModuleTests(unittest.TestCase):
 
         self.assertEqual(session_id, "droid-session-123")
 
+    def test_transcript_module_extracts_antigravity_conversation_id_from_cli_line(self) -> None:
+        conversation_id = fixer_autonomous_transcripts._extract_antigravity_conversation_id_from_line(
+            "I0702 printmode.go:179] Print mode: conversation=cb18f692-f4a9-4895-9509-d093dd911437, sending message",
+        )
+
+        self.assertEqual(conversation_id, "cb18f692-f4a9-4895-9509-d093dd911437")
+
+    def test_transcript_module_matches_antigravity_conversation_to_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as logs_tmp:
+            cwd = Path(tmp)
+            log_root = Path(logs_tmp)
+            log_path = log_root / "cli-20260702_023232.log"
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "I0702 common.go:161] CLI app data directory: /tmp/app",
+                        f"I0702 server.go:224] Creating CLI server backend: workspaceDirs=[{cwd.resolve()}] appDataDir=/tmp/app",
+                        "I0702 server.go:807] Created conversation cb18f692-f4a9-4895-9509-d093dd911437",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            conversation_id = fixer_autonomous_transcripts._find_new_antigravity_conversation_id_from_cli_logs(
+                cwd,
+                launch_started_at=0,
+                log_root=log_root,
+            )
+
+        self.assertEqual(conversation_id, "cb18f692-f4a9-4895-9509-d093dd911437")
+
+    def test_transcript_module_ignores_antigravity_conversation_from_other_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as logs_tmp:
+            cwd = Path(tmp)
+            log_root = Path(logs_tmp)
+            log_path = log_root / "cli-20260702_023232.log"
+            log_path.write_text(
+                "\n".join(
+                    [
+                        "I0702 server.go:224] Creating CLI server backend: workspaceDirs=[/tmp/other-project] appDataDir=/tmp/app",
+                        "I0702 server.go:807] Created conversation cb18f692-f4a9-4895-9509-d093dd911437",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            conversation_id = fixer_autonomous_transcripts._find_new_antigravity_conversation_id_from_cli_logs(
+                cwd,
+                launch_started_at=0,
+                log_root=log_root,
+            )
+
+        self.assertIsNone(conversation_id)
+
     def test_wave_module_keeps_deterministic_artifact_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project_cwd = Path(tmp)

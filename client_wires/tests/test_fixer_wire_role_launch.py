@@ -317,8 +317,8 @@ class LaunchFixerFlowTests(unittest.TestCase):
         self.assertEqual(cmd[0], "droid")
         self.assertNotIn("exec", cmd)
         self.assertNotIn("--skip-permissions-unsafe", cmd)
-        self.assertTrue(any("Droid MCP tool guidance:" in item for item in cmd))
-        self.assertTrue(any("fixer_mcp___<tool>" in item for item in cmd))
+        self.assertFalse(any("FIXER MCP TOOL ACCESS" in item for item in cmd))
+        self.assertFalse(any("fixer_mcp___" in item for item in cmd))
         self.assertFalse(any("mcp_fixer_mcp_assume_role" in item for item in cmd))
 
     def test_launch_fixer_new_builds_fresh_antigravity_command(self) -> None:
@@ -362,7 +362,7 @@ class LaunchFixerFlowTests(unittest.TestCase):
         self.assertNotIn("--print", cmd)
         self.assertIn("--prompt-interactive", cmd)
         prompt = cmd[cmd.index("--prompt-interactive") + 1]
-        self.assertTrue(prompt.startswith("Use the `init-fixer` skill immediately.\n"))
+        self.assertTrue(prompt.startswith("/init-fixer\n"))
         self.assertNotIn("Activate skill `$init-fixer` immediately.", prompt)
 
     def test_launch_fixer_resume_builds_resume_codex_command(self) -> None:

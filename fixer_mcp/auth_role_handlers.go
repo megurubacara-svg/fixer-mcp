@@ -39,8 +39,12 @@ var defaultRolePreprompts = map[string]string{
 	"overseer":  defaultRolePreprompt,
 }
 
-func bootstrapDefaultNetrunnerAuthFromEnv() {
+func bootstrapDefaultRoleAuthFromEnv() {
 	if strings.TrimSpace(authorizedRole) != "" {
+		return
+	}
+	defaultRole := strings.ToLower(strings.TrimSpace(os.Getenv(fixerMcpDefaultRoleEnv)))
+	if defaultRole != "netrunner" && defaultRole != "fixer" {
 		return
 	}
 	lockedRole, lockedRoleErr := lockedRoleFromEnv()
@@ -48,11 +52,15 @@ func bootstrapDefaultNetrunnerAuthFromEnv() {
 		log.Printf("fixer_mcp env auth bootstrap skipped: invalid locked role: %v", lockedRoleErr)
 		return
 	}
-	if lockedRole != "" && lockedRole != "netrunner" {
-		log.Printf("fixer_mcp env auth bootstrap skipped: %s=%s is not netrunner", fixerMcpLockedRoleEnv, lockedRole)
-		return
-	}
-	if strings.TrimSpace(os.Getenv(fixerMcpDefaultRoleEnv)) != "netrunner" {
+	if defaultRole == "netrunner" {
+		if lockedRole != "" && lockedRole != "netrunner" {
+			log.Printf("fixer_mcp env auth bootstrap skipped: %s=%s is not netrunner", fixerMcpLockedRoleEnv, lockedRole)
+			return
+		}
+	} else if strings.TrimSpace(os.Getenv(fixerMcpAutoAuthEnv)) != "1" ||
+		lockedRole != "fixer" ||
+		strings.TrimSpace(os.Getenv(fixerMcpToolProfileEnv)) != netrunnerGateProfile {
+		log.Printf("fixer_mcp env auth bootstrap skipped: fixer auto-auth is restricted to the locked netrunner gate")
 		return
 	}
 	normalizedCWD, err := normalizeProjectCWD(os.Getenv(fixerMcpDefaultCwdEnv))
@@ -72,10 +80,10 @@ func bootstrapDefaultNetrunnerAuthFromEnv() {
 		return
 	}
 
-	authorizedRole = "netrunner"
+	authorizedRole = defaultRole
 	authorizedProjectId = projId
 	authorizedSessionId = 0
-	log.Printf("fixer_mcp env auth bootstrap applied for netrunner project_id=%d cwd=%s", projId, normalizedCWD)
+	log.Printf("fixer_mcp env auth bootstrap applied for %s project_id=%d cwd=%s", defaultRole, projId, normalizedCWD)
 }
 
 type AssumeRoleInput struct {

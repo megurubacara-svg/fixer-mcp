@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-/workspace/self_orchestration}"
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 BUILD_DIR="${BUILD_DIR:-/tmp/fixer_mcp_smoke}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 SMOKE_BINARY="${INSTALL_DIR}/fixer_mcp"
+
+# The deterministic smoke owns its temporary role/database state. Do not let a
+# caller's locked worker environment change Go tests or the stdio scenario.
+unset FIXER_MCP_LOCKED_ROLE FIXER_DB_PATH FIXER_MCP_DEFAULT_ROLE
+unset FIXER_MCP_DEFAULT_CWD FIXER_MCP_AUTO_AUTH FIXER_MCP_TOOL_PROFILE
 
 cd "${ROOT_DIR}"
 

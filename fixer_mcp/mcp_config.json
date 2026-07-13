@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "fixer_mcp": {
+      "args": [],
+      "command": "./fixer_mcp",
+      "env": {
+        "FIXER_DB_PATH": "./fixer.db"
+      },
+      "per_tool_timeout_ms": 21600000,
+      "startup_timeout_sec": 30,
+      "timeout": 21600,
+      "tool_timeout_sec": 21600,
+      "transport": "stdio"
+    }
+  }
+}

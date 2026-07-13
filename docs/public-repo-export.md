@@ -7,7 +7,8 @@ The export contract is:
 - include the Go MCP server source without local databases, logs, binaries, or generated build trees;
 - include Python client wires and their tests;
 - include the canonical skills under `.agents/skills`;
-- include Docker validation scripts, installation/verification scripts, GitHub Actions deterministic CI, public docs, a public README, MIT license, generated `.gitignore`, and config examples;
+- include Docker validation scripts, installation/verification scripts, GitHub Actions deterministic CI, public docs, a public README, MIT license, generated `.gitignore`, config examples, and a portable `fixer_mcp/mcp_config.json` used by autonomous role launchers;
+- generate that runtime config with only repo-relative binary/database paths; never export the private source config;
 - fail the export if private paths, common secret formats, local env files, internal workspace directories, or private Russian operator labels appear in the output;
 - write a tree snapshot to `dist/EXPORT_MANIFEST.txt` for review before any git operation.
 

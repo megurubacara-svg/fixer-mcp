@@ -11,12 +11,13 @@ Use this document as an execution checklist when installing Fixer MCP for anothe
 ## Clone, install, verify
 
 ```bash
-git clone <repository-url> fixer-mcp
+git clone git@github.com:kamenetskiy-to/fixer-mcp.git fixer-mcp
+# HTTPS alternative: git clone https://github.com/kamenetskiy-to/fixer-mcp.git fixer-mcp
 cd fixer-mcp
 make install-verify
 ```
 
-The installer defaults to `~/.local`, builds the repo-native Go server, and creates `~/.local/bin/fixer`. It is safe to rerun: it replaces only its managed binary and wrapper and does not remove databases, configuration, credentials, or project files. It never edits shell startup files. If needed, add `~/.local/bin` to `PATH` yourself. A custom location is supported with `FIXER_INSTALL_PREFIX=/path make install-verify`.
+The installer defaults to `~/.local`, builds the repo-native Go server, and creates `~/.local/bin/fixer`. The wrapper is bound to this checkout's absolute path, so keep the checkout there; after moving it, rerun `make install-verify`. Installation is safe to rerun: it replaces only its managed binary and wrapper and does not remove databases, configuration, credentials, or project files. It never edits shell startup files. If needed, add `~/.local/bin` to `PATH` yourself. A custom location is supported with `FIXER_INSTALL_PREFIX=/path make install-verify`.
 
 ## First project
 

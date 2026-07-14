@@ -8,6 +8,7 @@ import os
 import sqlite3
 import subprocess
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -110,8 +111,11 @@ def main() -> int:
     if not binary.is_file():
         raise SystemExit(f"missing smoke binary: {binary}")
 
-    with tempfile.TemporaryDirectory(prefix="fixer-mcp-smoke-") as tmp:
+    configured_root = os.environ.get("FIXER_SMOKE_ROOT", "").strip()
+    root_context = nullcontext(Path(configured_root).expanduser().resolve()) if configured_root else tempfile.TemporaryDirectory(prefix="fixer-mcp-smoke-")
+    with root_context as tmp:
         tmp_path = Path(tmp)
+        tmp_path.mkdir(parents=True, exist_ok=True)
         runtime_dir = tmp_path / "runtime"
         alpha_dir = tmp_path / "alpha"
         beta_dir = tmp_path / "beta"
@@ -119,7 +123,8 @@ def main() -> int:
         for path in (runtime_dir, alpha_dir, beta_dir, nested_dir):
             path.mkdir(parents=True, exist_ok=True)
 
-        db_path = runtime_dir / "fixer.db"
+        db_path = Path(os.environ.get("FIXER_SMOKE_DB_PATH", str(runtime_dir / "fixer.db"))).expanduser().resolve()
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ)
         env["FIXER_DB_PATH"] = str(db_path)
 

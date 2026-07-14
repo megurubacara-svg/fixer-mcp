@@ -43,6 +43,7 @@ make install-verify
 - Docker smoke failures: ensure the daemon is running; `make install-verify` itself is non-interactive and does not require Docker.
 - Authenticated launch failures: run `codex login`; never place auth data in this checkout.
 - Override state location with `FIXER_DB_PATH`; existing state is not overwritten by installation.
+- Without an override, state lives at `XDG_STATE_HOME/fixer-client-wires/fixer.db`, or `~/.local/state/fixer-client-wires/fixer.db` by default. The launcher creates that parent directory on first use.
 
 ## Success criteria
 

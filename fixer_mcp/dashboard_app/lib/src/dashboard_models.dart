@@ -1,3 +1,6 @@
+import 'hub/docs/documents_explorer.dart';
+import 'hub/netrunners/netrunner_models.dart';
+
 class StatusCounts {
   const StatusCounts({
     required this.pending,
@@ -507,6 +510,8 @@ class ProjectCardRecord {
     required this.autonomous,
     required this.hasPendingReview,
     required this.hasActiveWorkers,
+    this.activeWaveCount = 0,
+    this.lastActivityAt = '',
   });
 
   final ProjectBinding project;
@@ -517,6 +522,8 @@ class ProjectCardRecord {
   final AutonomousStatusRecord? autonomous;
   final bool hasPendingReview;
   final bool hasActiveWorkers;
+  final int activeWaveCount;
+  final String lastActivityAt;
 
   factory ProjectCardRecord.fromJson(Map<String, dynamic> json) {
     return ProjectCardRecord(
@@ -536,6 +543,8 @@ class ProjectCardRecord {
           : null,
       hasPendingReview: _asBool(json['has_pending_review']),
       hasActiveWorkers: _asBool(json['has_active_workers']),
+      activeWaveCount: _asInt(json['active_wave_count']),
+      lastActivityAt: _asString(json['last_activity_at']),
     );
   }
 }
@@ -590,12 +599,16 @@ class OverviewMetrics {
     required this.attachedDocCount,
     required this.pendingProposalCount,
     required this.workerState,
+    this.activeWaveCount = 0,
+    this.totalWaveCount = 0,
   });
 
   final StatusCounts counts;
   final int attachedDocCount;
   final int pendingProposalCount;
   final WorkerStateSummary workerState;
+  final int activeWaveCount;
+  final int totalWaveCount;
 
   factory OverviewMetrics.fromJson(Map<String, dynamic> json) {
     return OverviewMetrics(
@@ -603,6 +616,8 @@ class OverviewMetrics {
       attachedDocCount: _asInt(json['attached_doc_count']),
       pendingProposalCount: _asInt(json['pending_proposal_count']),
       workerState: WorkerStateSummary.fromJson(_asMap(json['worker_state'])),
+      activeWaveCount: _asInt(json['active_wave_count']),
+      totalWaveCount: _asInt(json['total_wave_count']),
     );
   }
 }
@@ -977,6 +992,12 @@ class ProjectWorkspaceSnapshot {
     required this.docs,
     required this.netrunners,
     required this.fixerChat,
+    this.documentsTree = const ProjectDocumentsSnapshot(
+      projectName: '',
+      totalDocs: 0,
+      roots: <HubDocument>[],
+    ),
+    this.waveGroups = const <NetrunnerWaveGroupRecord>[],
   });
 
   final ProjectBinding project;
@@ -985,12 +1006,15 @@ class ProjectWorkspaceSnapshot {
   final DocsSummaryRecord docs;
   final List<NetrunnerSummaryRecord> netrunners;
   final FixerChatBindingRecord fixerChat;
+  final ProjectDocumentsSnapshot documentsTree;
+  final List<NetrunnerWaveGroupRecord> waveGroups;
 
   factory ProjectWorkspaceSnapshot.fromJson(
     Map<String, dynamic> snapshotJson,
     Map<String, dynamic> docsJson,
-    Map<String, dynamic> chatJson,
-  ) {
+    Map<String, dynamic> chatJson, [
+    Map<String, dynamic> documentsTreeJson = const <String, dynamic>{},
+  ]) {
     return ProjectWorkspaceSnapshot(
       project: ProjectBinding.fromJson(_asMap(snapshotJson['project'])),
       metrics: OverviewMetrics.fromJson(_asMap(snapshotJson['metrics'])),
@@ -1009,6 +1033,11 @@ class ProjectWorkspaceSnapshot {
         NetrunnerSummaryRecord.fromJson,
       ),
       fixerChat: FixerChatBindingRecord.fromJson(chatJson),
+      documentsTree: ProjectDocumentsSnapshot.fromJson(documentsTreeJson),
+      waveGroups: _asList(
+        snapshotJson['waves'],
+        NetrunnerWaveGroupRecord.fromJson,
+      ),
     );
   }
 }

@@ -1,1 +1,36 @@
-protocol: []
+clientAuth:
+  - register:
+  - login:
+clientProfile:
+  - current:
+dashboardRuntime:
+  - health:
+  - topology:
+  - homeSnapshot:
+  - projectSnapshot:
+  - projectDocs:
+  - threadBinding:
+  - sessionDetail:
+  - threadMessages:
+  - sendThreadMessage:
+  - threadTurnStatus:
+clientOrder:
+  - createOrder:
+  - listOrders:
+  - getOrder:
+  - updateOrder:
+  - deleteOrder:
+  - createRevision:
+  - listRevisions:
+  - getRevision:
+  - updateRevision:
+  - deleteRevision:
+orderDelivery:
+  - mergeOrder:
+  - approveOrder:
+  - rejectOrder:
+order:
+  - createOrder:
+  - listOrders:
+  - submitRevision:
+  - orderStatus:

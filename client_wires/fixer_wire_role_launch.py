@@ -11,6 +11,7 @@ import sys
 from typing import Any, Callable, Sequence
 
 from client_wires.backends import normalize_backend_name
+from client_wires import fixer_wire_prompts
 from client_wires import fixer_wire_resume
 
 @dataclass(frozen=True)
@@ -226,7 +227,9 @@ def launch_fresh_role_session(
     option_args = [*codex_args, *adapter.build_mcp_flags(selected_servers, available_servers)]
     command = [adapter.command, *option_args]
     launch_prompt = callbacks.append_droid_mcp_tool_guidance(
-        prompt,
+        fixer_wire_prompts.materialize_fixer_provider_prompt(prompt, launch_selection.backend)
+        if role == "fixer"
+        else prompt,
         backend=launch_selection.backend,
         mcp_names=selected_mcp_names,
     )
@@ -252,7 +255,7 @@ def launch_fresh_role_session(
     print(f"[fixer-wire] {role} reasoning: {launch_selection.reasoning}")
     print(f"[fixer-wire] {role} MCP selection: {', '.join(sorted(selected_servers)) if selected_servers else 'none'}")
     print("[fixer-wire] command:", command)
-    if launch_selection.backend == "kimi-code" and launch_prompt and not dry_run:
+    if launch_selection.backend in ("kimi-code", "kimi-code-native") and launch_prompt and not dry_run:
         print("[fixer-wire] kimi shell mode cannot auto-submit; paste the following into the Kimi TUI:")
         print(launch_prompt)
         try:
@@ -400,6 +403,56 @@ def launch_fixer(
     return subprocess.call(codex_cmd, env=env, cwd=str(cwd))
 
 
+def launch_new_fixer_chat(
+    *,
+    launch_cwd: Path,
+    backend: str,
+    model: str,
+    reasoning: str,
+    dry_run: bool,
+    passthrough_args: Sequence[str] = (),
+    Option: Any,
+    single_select_items: Any,
+    callbacks: RoleLaunchCallbacks,
+) -> int:
+    """Launch a dashboard-created Fixer through the canonical role path.
+
+    Keeping this as a thin entrypoint makes the app flow inherit the same
+    role-locked Fixer MCP environment, init-fixer prompt, backend adapter, and
+    runtime materialization as the manual ``fixer`` alias.
+    """
+
+    cwd = launch_cwd.resolve()
+    selected_backend = normalize_backend_name(backend)
+    selected_model = str(model).strip()
+    selected_reasoning = str(reasoning).strip()
+    if not selected_model:
+        raise ValueError("Fixer chat model must be non-empty.")
+    if not selected_reasoning:
+        raise ValueError("Fixer chat reasoning must be non-empty.")
+
+    callbacks.assert_project_is_registered(cwd)
+    available_servers, _config_env_vars, _adapter, _ensure_sqlite_scaffold = callbacks.load_available_servers(
+        cwd,
+        backend=selected_backend,
+    )
+    selected_mcp_names = _forced_fixer_mcp_names(available_servers, callbacks=callbacks)
+    return callbacks.launch_fresh_role_session(
+        "fixer",
+        callbacks.build_fixer_prompt(),
+        passthrough_args,
+        launch_cwd=cwd,
+        selected_mcp_names=selected_mcp_names,
+        dry_run=dry_run,
+        preset_backend=selected_backend,
+        preset_model=selected_model,
+        preset_reasoning=selected_reasoning,
+        dangerous_sandbox=True,
+        Option=Option,
+        single_select_items=single_select_items,
+    )
+
+
 def launch_unattached_fixer(
     passthrough_args: Sequence[str],
     *,
@@ -436,6 +489,11 @@ def launch_unattached_fixer(
 def launch_overseer(
     passthrough_args: Sequence[str],
     *,
+    launch_cwd: Path | None = None,
+    preset_backend: str | None = None,
+    preset_model: str | None = None,
+    preset_reasoning: str | None = None,
+    preset_resume_session_id: str | None = None,
     dry_run: bool,
     Option: Any,
     single_select_items: Any,
@@ -449,9 +507,17 @@ def launch_overseer(
         _reasoning_label,
     )
 
-    cwd = Path.cwd()
-    callbacks.assert_project_is_registered(cwd)
-    launch_mode = callbacks.select_overseer_launch_action_interactive(Option, single_select_items)
+    cwd = (launch_cwd or Path.cwd()).resolve()
+    if launch_cwd is None:
+        callbacks.assert_project_is_registered(cwd)
+    elif not cwd.is_dir():
+        raise RuntimeError(f"Overseer launch cwd is not an existing directory: {cwd}")
+
+    launch_mode = (
+        "preset_resume"
+        if preset_resume_session_id
+        else callbacks.select_overseer_launch_action_interactive(Option, single_select_items)
+    )
     if launch_mode == callbacks.overseer_launch_new:
         available_servers, _config_env_vars, _adapter, _ensure_sqlite_scaffold = callbacks.load_available_servers(cwd)
         selected_mcp_names = callbacks.select_role_preset_server_names(
@@ -463,23 +529,44 @@ def launch_overseer(
             "overseer",
             callbacks.build_overseer_prompt(),
             passthrough_args,
+            launch_cwd=cwd,
             selected_mcp_names=selected_mcp_names,
             dry_run=dry_run,
-            preset_backend=None,
-            preset_model=None,
-            preset_reasoning=None,
+            preset_backend=preset_backend,
+            preset_model=preset_model,
+            preset_reasoning=preset_reasoning,
             dangerous_sandbox=True,
             Option=Option,
             single_select_items=single_select_items,
         )
 
     overseer_summaries = callbacks.load_overseer_resume_summaries(cwd)
-    resume_codex_session_id = callbacks.select_overseer_resume_session_interactive(
+    raw_selection = preset_resume_session_id or callbacks.select_overseer_resume_session_interactive(
         overseer_summaries,
         Option,
         single_select_items,
     )
-    available_servers, config_env_vars, adapter, ensure_sqlite_scaffold = callbacks.load_available_servers(cwd, backend="codex")
+    resume_selection = fixer_wire_resume.parse_fixer_resume_selection(raw_selection)
+    if resume_selection.provider == "codex":
+        matching_summary = next(
+            (
+                summary
+                for summary in overseer_summaries
+                if str(summary.session_id) == resume_selection.session_id
+            ),
+            None,
+        )
+        if matching_summary is not None:
+            resume_selection = fixer_wire_resume.FixerResumeSelection(
+                provider=fixer_wire_resume.summary_provider(matching_summary),
+                session_id=resume_selection.session_id,
+            )
+    resume_provider = resume_selection.provider
+    resume_session_id = resume_selection.session_id
+    available_servers, config_env_vars, adapter, ensure_sqlite_scaffold = callbacks.load_available_servers(
+        cwd,
+        backend=resume_provider,
+    )
     selected_mcp_names = callbacks.select_role_preset_server_names(
         available_servers,
         cwd=cwd,
@@ -497,8 +584,8 @@ def launch_overseer(
         ensure_sqlite_scaffold=ensure_sqlite_scaffold,
     )
 
-    model = callbacks.fixer_wire_model
-    effort = callbacks.fixer_wire_reasoning_effort
+    model = str(getattr(adapter, "default_model", callbacks.fixer_wire_model))
+    effort = str(getattr(adapter, "default_reasoning", callbacks.fixer_wire_reasoning_effort))
     llm_selection = LLMSelection(
         display_model=model,
         detail=_reasoning_label(model, effort),
@@ -510,15 +597,11 @@ def launch_overseer(
     execution_prefs = ExecutionPreferences(dangerous_sandbox=True, auto_approve=True)
 
     codex_args: list[str] = []
-    codex_args.extend(adapter.build_llm_args(llm_selection))
     codex_args.extend(adapter.build_interactive_execution_args(execution_prefs))
     codex_args.extend(list(passthrough_args))
     codex_args = callbacks.append_codex_apps_gate(codex_args, adapter, allow_computer_use=False)
     option_args = [*codex_args, *adapter.build_mcp_flags(selected_servers, available_servers)]
-    if normalize_backend_name(getattr(adapter, "name", "")) == "codex":
-        command = [adapter.command, "fork", *option_args, resume_codex_session_id]
-    else:
-        command = adapter.build_resume_command(option_args, resume_codex_session_id)
+    command = _adapter_resume_command(adapter, option_args, resume_session_id)
 
     env = callbacks.build_backend_launch_env(
         adapter,
@@ -533,11 +616,11 @@ def launch_overseer(
         config_env_vars=config_env_vars,
     )
 
-    print(f"[fixer-wire] resuming overseer codex session id: {resume_codex_session_id}")
+    print(f"[fixer-wire] resuming overseer {resume_provider} session id: {resume_session_id}")
     print(f"[fixer-wire] overseer MCP selection: {', '.join(sorted(selected_servers)) if selected_servers else 'none'}")
     print("[fixer-wire] command:", command)
     if dry_run:
         return 0
 
     adapter.ensure_runtime_files(cwd, llm_selection, selected_servers, available_servers)
-    return subprocess.call(command, env=env)
+    return subprocess.call(command, env=env, cwd=str(cwd))

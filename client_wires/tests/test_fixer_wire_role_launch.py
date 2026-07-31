@@ -6,9 +6,10 @@ import sys
 import tempfile
 import types
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from client_wires import fixer_wire
 from client_wires import fixer_wire_role_launch
@@ -180,6 +181,96 @@ class LaunchFixerFlowTests(unittest.TestCase):
     def _load_available_servers(self) -> tuple[dict[str, dict[str, object]], dict[str, str], _FakeAdapter, object]:
         available = {fixer_wire.FORCED_MCP_SERVER: {"command": "fixer_mcp"}}
         return available, {}, _FakeAdapter(), (lambda _cwd: None)
+
+    def test_launch_new_fixer_chat_forwards_all_supported_provider_selections(self) -> None:
+        provider_matrix = (
+            ("codex", "gpt-5.6-sol", "high"),
+            ("agy", "Gemini 3.5 Flash", "thinking"),
+            ("claude", "sonnet", "medium"),
+            ("kimi-code", "kimi-k2.7-code", "high"),
+            ("droid", "kimi-k2.7-code", "high"),
+            ("junie", "kimi-k2.6", "default"),
+        )
+
+        for backend, model, reasoning in provider_matrix:
+            with self.subTest(backend=backend):
+                with (
+                    patch.object(
+                        fixer_wire,
+                        "_load_available_servers",
+                        return_value=self._load_available_servers(),
+                    ),
+                    patch.object(fixer_wire, "_build_fixer_prompt", return_value=fixer_wire.FIXER_SKILL_MARKER),
+                    patch.object(fixer_wire, "_launch_fresh_role_session", return_value=0) as launch,
+                ):
+                    result = fixer_wire_role_launch.launch_new_fixer_chat(
+                        launch_cwd=Path.cwd(),
+                        backend=backend,
+                        model=model,
+                        reasoning=reasoning,
+                        dry_run=True,
+                        Option=_DummyOption,
+                        single_select_items=lambda *_a, **_k: None,
+                        callbacks=fixer_wire._role_launch_callbacks(),
+                    )
+
+                self.assertEqual(result, 0)
+                launch.assert_called_once()
+                self.assertEqual(launch.call_args.args[:3], ("fixer", fixer_wire.FIXER_SKILL_MARKER, ()))
+                self.assertEqual(
+                    launch.call_args.kwargs["preset_backend"],
+                    "antigravity" if backend == "agy" else backend,
+                )
+                self.assertEqual(launch.call_args.kwargs["preset_model"], model)
+                self.assertEqual(launch.call_args.kwargs["preset_reasoning"], reasoning)
+                self.assertEqual(launch.call_args.kwargs["selected_mcp_names"], [fixer_wire.FORCED_MCP_SERVER])
+                self.assertTrue(launch.call_args.kwargs["dangerous_sandbox"])
+
+    def test_launch_new_fixer_chat_constructs_locked_command_without_secret_arguments(self) -> None:
+        captured: dict[str, object] = {}
+
+        def capture_runtime_files(
+            cwd: Path,
+            selection: object,
+            selected: dict[str, object],
+            _available: dict[str, object],
+        ) -> None:
+            captured["cwd"] = cwd
+            captured["selection"] = selection
+            captured["selected"] = selected
+
+        with (
+            patch.dict(sys.modules, {"client_wires.codex_compat.llm": _fake_codex_main_module()}),
+            patch.object(fixer_wire, "_load_available_servers", side_effect=lambda *_a, **_k: self._load_available_servers()),
+            patch.object(
+                fixer_wire,
+                "_select_fresh_launch_selection",
+                return_value=fixer_wire.SessionLaunchSelection("codex", "gpt-5.6-sol", "high"),
+            ),
+            patch.object(_FakeAdapter, "ensure_runtime_files", side_effect=capture_runtime_files),
+            patch("client_wires.fixer_wire_role_launch.subprocess.call", return_value=0) as mock_call,
+        ):
+            result = fixer_wire_role_launch.launch_new_fixer_chat(
+                launch_cwd=Path.cwd(),
+                backend="codex",
+                model="gpt-5.6-sol",
+                reasoning="high",
+                dry_run=False,
+                Option=_DummyOption,
+                single_select_items=lambda *_a, **_k: None,
+                callbacks=fixer_wire._role_launch_callbacks(),
+            )
+
+        self.assertEqual(result, 0)
+        command = mock_call.call_args.args[0]
+        self.assertEqual(command[0], "codex")
+        self.assertIn("--mcp=fixer_mcp", command)
+        self.assertTrue(any(fixer_wire.FIXER_SKILL_MARKER in argument for argument in command))
+        self.assertFalse(any("TOKEN" in argument or "API_KEY" in argument for argument in command))
+        selected = captured["selected"]
+        server_env = selected[fixer_wire.FORCED_MCP_SERVER]["env"]
+        self.assertEqual(server_env[fixer_wire.FIXER_MCP_LOCKED_ROLE_ENV], "fixer")
+        self.assertEqual(getattr(captured["selection"], "model"), "gpt-5.6-sol")
 
     def test_launch_fixer_new_builds_fresh_codex_command(self) -> None:
         captured: dict[str, object] = {}
@@ -694,3 +785,84 @@ class LaunchOverseerFlowTests(unittest.TestCase):
         self.assertEqual(cmd[1], "fork")
         self.assertEqual(cmd[-1], "overseer-789")
         self.assertIn("--mcp=fixer_mcp,project_tool", cmd)
+
+    def test_launch_overseer_accepts_explicit_cwd_and_backend_preferences(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            launch_cwd = Path(tmp).resolve()
+            launch_fresh = Mock(return_value=0)
+            callbacks = replace(
+                fixer_wire._role_launch_callbacks(),
+                select_overseer_launch_action_interactive=lambda *_a, **_k: fixer_wire.OVERSEER_LAUNCH_NEW,
+                load_available_servers=lambda *_a, **_k: (
+                    {fixer_wire.FORCED_MCP_SERVER: {"command": "fixer_mcp"}},
+                    {},
+                    _FakeAdapter(),
+                    lambda _cwd: None,
+                ),
+                select_role_preset_server_names=lambda *_a, **_k: [fixer_wire.FORCED_MCP_SERVER],
+                launch_fresh_role_session=launch_fresh,
+            )
+            with (
+                patch.dict(sys.modules, {"client_wires.codex_compat.llm": _fake_codex_main_module()}),
+            ):
+                code = fixer_wire_role_launch.launch_overseer(
+                    [],
+                    launch_cwd=launch_cwd,
+                    preset_backend="droid",
+                    preset_model="glm-5.1",
+                    preset_reasoning="high",
+                    dry_run=True,
+                    Option=_DummyOption,
+                    single_select_items=lambda *_a, **_k: None,
+                    callbacks=callbacks,
+                )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(launch_fresh.call_args.kwargs["launch_cwd"], launch_cwd)
+        self.assertEqual(launch_fresh.call_args.kwargs["preset_backend"], "droid")
+        self.assertEqual(launch_fresh.call_args.kwargs["preset_model"], "glm-5.1")
+        self.assertEqual(launch_fresh.call_args.kwargs["preset_reasoning"], "high")
+
+    def test_launch_overseer_resumes_discovered_droid_thread_on_its_provider(self) -> None:
+        summary = types.SimpleNamespace(
+            provider="droid",
+            session_id="droid-overseer-7",
+            created=datetime(2026, 2, 1, 10, 0, tzinfo=timezone.utc),
+            updated=datetime(2026, 2, 1, 12, 30, tzinfo=timezone.utc),
+            preview="Droid Overseer",
+        )
+        available = {
+            fixer_wire.FORCED_MCP_SERVER: {"command": "fixer_mcp"},
+        }
+        load_servers = Mock(
+            return_value=(available, {}, DroidBackendAdapter(), lambda _cwd: None)
+        )
+        callbacks = replace(
+            fixer_wire._role_launch_callbacks(),
+            select_overseer_launch_action_interactive=lambda *_a, **_k: fixer_wire.OVERSEER_LAUNCH_RESUME,
+            load_overseer_resume_summaries=lambda _cwd: [summary],
+            select_overseer_resume_session_interactive=lambda *_a, **_k: "droid-overseer-7",
+            load_available_servers=load_servers,
+            select_role_preset_server_names=lambda *_a, **_k: [fixer_wire.FORCED_MCP_SERVER],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp).resolve()
+            with (
+                patch.dict(sys.modules, {"client_wires.codex_compat.llm": _fake_codex_main_module()}),
+                patch.object(DroidBackendAdapter, "ensure_runtime_files", return_value=None),
+                patch("client_wires.fixer_wire_role_launch.subprocess.call", return_value=0) as mock_call,
+            ):
+                code = fixer_wire_role_launch.launch_overseer(
+                    [],
+                    launch_cwd=cwd,
+                    dry_run=False,
+                    Option=_DummyOption,
+                    single_select_items=lambda *_a, **_k: None,
+                    callbacks=callbacks,
+                )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(load_servers.call_args.kwargs["backend"], "droid")
+        command = mock_call.call_args.args[0]
+        self.assertEqual(command[:3], ["droid", "--resume", "droid-overseer-7"])
+        self.assertEqual(mock_call.call_args.kwargs["cwd"], str(cwd))

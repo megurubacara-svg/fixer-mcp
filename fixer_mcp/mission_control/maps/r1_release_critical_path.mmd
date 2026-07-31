@@ -1,0 +1,44 @@
+flowchart LR
+  %% R1 release-critical path. Visible feature and gate IDs are canonical.
+  R1_WAVE_001["R1-WAVE-001<br/>Wave Engine v2 core"] --> R1_MC_001["R1-MC-001<br/>Registry and maps"]
+  R1_MC_001 --> R1_MC_002["R1-MC-002<br/>Mission Control UI"]
+  R1_MC_001 --> R1_IDENTITY_001["R1-IDENTITY-001<br/>Identity and tenancy"]
+  R1_IDENTITY_001 --> R1_PROD_001["R1-PROD-001<br/>Production security"]
+  R1_IDENTITY_001 --> R1_ECON_001["R1-ECON-001<br/>Economy and budgets"]
+  R1_PROD_001 --> R1_WALLET_001["R1-WALLET-001<br/>Real-wallet gate"]
+  R1_ECON_001 --> R1_WALLET_001
+  R1_WALLET_001 --> ARCH_WALLET_001{"ARCH-WALLET-001<br/>Explicit funding and signature"}
+  ARCH_WALLET_001 --> R1_MARKET_001["R1-MARKET-001<br/>Project market"]
+
+  R1_IDENTITY_001 --> R1_GATEWAY_001["R1-GATEWAY-001<br/>AI Gateway"]
+  R1_IDENTITY_001 --> R1_PAY_001["R1-PAY-001<br/>Payment rails"]
+  R1_GATEWAY_001 --> R1_SUB_001["R1-SUB-001<br/>Optional subscription"]
+  R1_PAY_001 --> ARCH_PAYMENTS_001{"ARCH-PAYMENTS-001<br/>Commercial approval"}
+  ARCH_PAYMENTS_001 --> R1_SUB_001
+
+  R1_ECON_001 --> R1_GOV_001["R1-GOV-001<br/>Governance"]
+  R1_GOV_001 --> ARCH_GOVERNANCE_001{"ARCH-GOVERNANCE-001<br/>Legal wrapper"}
+  ARCH_GOVERNANCE_001 --> R1_EXCHANGE_001["R1-EXCHANGE-001<br/>Governed Exchange"]
+  R1_PAY_001 --> R1_EXCHANGE_001
+  R1_EXCHANGE_001 --> ARCH_EXCHANGE_FEE_001{"ARCH-EXCHANGE-FEE-001<br/>Fee approval"}
+  ARCH_EXCHANGE_FEE_001 --> R1_LANDING_001["R1-LANDING-001<br/>Combined landing"]
+  R1_SUB_001 --> R1_LANDING_001
+  R1_MC_002 --> R1_STUDIO_001["R1-STUDIO-001<br/>Canonical Studio surfaces"]
+  R1_STUDIO_001 --> R1_LANDING_001
+  R1_LANDING_001 --> ARCH_BRAND_001{"ARCH-BRAND-001<br/>Brand approval"}
+  ARCH_BRAND_001 --> R1_GEO_001["R1-GEO-001<br/>Multilingual GEO"]
+  R1_GEO_001 --> R1_AGENTS_001["R1-AGENTS-001<br/>AGENTS_MANIFEST"]
+  R1_GEO_001 --> R1_DOCS_001["R1-DOCS-001<br/>R1 completion audit"]
+  R1_PROD_001 --> R1_DOCS_001
+
+  R1_WAVE_001 -. reviewed binary .-> ARCH_RESTART_001{"ARCH-RESTART-001<br/>Restart and build epoch"}
+  ARCH_RESTART_001 -. confirmed before first product wave .-> R1_MC_001
+
+  classDef done fill:#d7f5df,stroke:#16794a,color:#102a1c
+  classDef active fill:#dbeafe,stroke:#2563eb,color:#172554
+  classDef planned fill:#f3f4f6,stroke:#6b7280,color:#111827
+  classDef gate fill:#ffe4e6,stroke:#be123c,color:#4c0519
+  class R1_WAVE_001 done
+  class R1_MC_001 done
+  class R1_MC_002,R1_IDENTITY_001,R1_PROD_001,R1_ECON_001,R1_WALLET_001,R1_MARKET_001,R1_GATEWAY_001,R1_PAY_001,R1_SUB_001,R1_GOV_001,R1_EXCHANGE_001,R1_LANDING_001,R1_STUDIO_001,R1_GEO_001,R1_AGENTS_001,R1_DOCS_001 planned
+  class ARCH_WALLET_001,ARCH_PAYMENTS_001,ARCH_GOVERNANCE_001,ARCH_EXCHANGE_FEE_001,ARCH_BRAND_001,ARCH_RESTART_001 gate

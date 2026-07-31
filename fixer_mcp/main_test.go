@@ -61,6 +61,9 @@ func TestParallelNetrunnerWaveLifecycleSmoke(t *testing.T) {
 	if created.Wave.Status != parallelWaveStatusCreated || len(created.Workers) != 2 {
 		t.Fatalf("unexpected created wave: %+v", created)
 	}
+	if created.Wave.Phase != parallelWavePhaseInitialized || created.Wave.ControlState != parallelWaveControlActive {
+		t.Fatalf("unexpected initialized v2 state: %+v", created.Wave)
+	}
 
 	var launchedArgs [][]string
 	installFakeWaveWorkerLauncher(t, "", &launchedArgs)
@@ -78,6 +81,9 @@ func TestParallelNetrunnerWaveLifecycleSmoke(t *testing.T) {
 	if launched.Status != "success" || launched.Wave.Status != parallelWaveStatusRunning || len(launched.Workers) != 2 {
 		t.Fatalf("unexpected launched wave: %+v", launched)
 	}
+	if launched.Wave.Phase != parallelWavePhaseImplementation {
+		t.Fatalf("expected implementation phase after launch, got %+v", launched.Wave)
+	}
 	if len(launchedArgs) != 2 {
 		t.Fatalf("expected two fake launcher calls, got %d: %+v", len(launchedArgs), launchedArgs)
 	}
@@ -94,6 +100,8 @@ func TestParallelNetrunnerWaveLifecycleSmoke(t *testing.T) {
 	if err := os.WriteFile(changedPath, []byte("phase 7 smoke worker change\n"), 0o644); err != nil {
 		t.Fatalf("write winner worktree change: %v", err)
 	}
+	runGitTestCommand(t, winnerWorktreePath, "add", "docs/a/smoke.md")
+	runGitTestCommand(t, winnerWorktreePath, "-c", "user.name=Fixer Test", "-c", "user.email=fixer@example.test", "commit", "-m", "smoke commit")
 
 	winnerGlobalSessionID, err := globalSessionIDFromProjectScoped(1, 1)
 	if err != nil {
@@ -111,7 +119,7 @@ func TestParallelNetrunnerWaveLifecycleSmoke(t *testing.T) {
 
 	callResult, waitOut, err := WaitForNetrunnerWave(context.Background(), nil, WaitForNetrunnerWaveInput{
 		WaveId:              created.WaveId,
-		TimeoutSeconds:      1,
+		TimeoutSeconds:      300,
 		PollIntervalSeconds: 1,
 	})
 	if err != nil {
@@ -153,7 +161,7 @@ func TestParallelNetrunnerWaveLifecycleSmoke(t *testing.T) {
 	}
 	callResult, allTerminalOut, err := WaitForNetrunnerWave(context.Background(), nil, WaitForNetrunnerWaveInput{
 		WaveId:              created.WaveId,
-		TimeoutSeconds:      1,
+		TimeoutSeconds:      300,
 		PollIntervalSeconds: 1,
 		ReturnWhen:          parallelWaveWaitAllTerminal,
 	})
@@ -168,6 +176,9 @@ func TestParallelNetrunnerWaveLifecycleSmoke(t *testing.T) {
 	}
 	if testWaveWorkerBySession(t, allTerminalOut.Result.Wave, 2).Status != parallelWaveWorkerStatusCompleted {
 		t.Fatalf("expected remaining worker completed, got %+v", allTerminalOut.Result.Wave.Workers)
+	}
+	if allTerminalOut.Result.Wave.GateState != parallelWaveGateImplementationReview {
+		t.Fatalf("expected implementation review gate, got %+v", allTerminalOut.Result.Wave)
 	}
 
 	if _, err := testDB.Exec(

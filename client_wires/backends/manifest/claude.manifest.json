@@ -6,12 +6,14 @@
     "options": [
       "sonnet",
       "opus",
+      "claude-opus-5",
       "haiku"
     ],
     "default": "sonnet",
     "internal_id_map": {
       "sonnet": "sonnet",
       "opus": "opus",
+      "claude-opus-5": "claude-opus-5",
       "haiku": "haiku"
     },
     "byok": false,

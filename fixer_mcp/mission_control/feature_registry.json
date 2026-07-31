@@ -1,0 +1,1352 @@
+{
+  "schema_version": "1.0.0",
+  "registry_id": "fixer-r1",
+  "title": "Fixer R1 portfolio registry",
+  "as_of": "2026-07-28",
+  "source_snapshot": [
+    "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+    "Fixer MCP project doc 21: Parallel Wave Lifecycle",
+    "Fixer MCP project doc 22: Fixer Studio Desktop Bridge",
+    "Fixer MCP project doc 58: Network Pivot",
+    "Fixer MCP project doc 64: Economy v0",
+    "Fixer MCP project docs 65 and 70: Provider Adapter Abstraction",
+    "Fixer MCP project doc 75: Build State and Roadmap",
+    "Fixer MCP project doc 81: ShipFlow Tracker MVP",
+    "Fixer MCP project doc 85: R1 Mission Control / Roadmap"
+  ],
+  "runtime_observation_contract": {
+    "source_of_truth": "Fixer MCP runtime state",
+    "join_key": "feature_id",
+    "embedded_runtime_state": false,
+    "manual_percentages_allowed": false,
+    "observed_entities": [
+      "backlog_items",
+      "sessions",
+      "waves",
+      "workers",
+      "screenshots",
+      "acceptance_runs",
+      "deployments",
+      "architect_gates"
+    ]
+  },
+  "global_decisions": [
+    {
+      "id": "DEC-FREE-SELF-HOSTING",
+      "decision": "Self-hosted Fixer MCP is fully user-operated and costs exactly $0; payment is never required to run it.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-OPTIONAL-SUBSCRIPTION",
+      "decision": "The Fixer subscription is optional and pays for managed value or entitlements, not access to free self-hosting.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-EXCHANGE-GOVERNED-OPT-IN",
+      "decision": "A creator, then the activated project governance body, decides whether a project joins Fixer Exchange; settlement fees are enforced after opt-in.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-EXCHANGE-FEE-UNSET",
+      "decision": "The Exchange fee rate remains an Architect/legal/unit-economics decision; the former 0% take-rate rule is superseded.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-GATEWAY-BOUNDARY",
+      "decision": "All model and infrastructure consumption, including BYOK, routes through a Fixer gateway for policy, accounting, and budget enforcement.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-HONEST-MATURITY",
+      "decision": "R1 is an end-to-end system whose shipped surfaces are explicitly labelled stable, alpha, or experimental.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-REAL-WALLET-SIGNATURE",
+      "decision": "Every real crypto action requires an explicit operator signature, exact recipient and amount preview, and a hard spend cap.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#non-negotiable-product-decisions"
+      ]
+    },
+    {
+      "id": "DEC-STUDIO-CANONICAL",
+      "decision": "Current Fixer Studio is the canonical cockpit; the retired App Server cockpit must not be revived.",
+      "evidence_refs": [
+        "Fixer MCP project doc 22"
+      ]
+    },
+    {
+      "id": "DEC-RUST-TERMINAL",
+      "decision": "A new Rust terminal is required, with the Python launcher retained until migration acceptance passes.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#rust-fixer-terminal"
+      ]
+    },
+    {
+      "id": "DEC-PROTECTED-GOVERNANCE",
+      "decision": "Economic votes may be unit-weighted, while constitution, mission, publicity, and ownership changes need an additional community protection threshold.",
+      "evidence_refs": [
+        "FIXER_R1_GRAND_RUN_CHECKLIST.md#public-projects-ownership-and-governance"
+      ]
+    }
+  ],
+  "architect_gates": [
+    {
+      "id": "ARCH-RESTART-001",
+      "title": "MCP binary restart and build-epoch confirmation",
+      "trigger": "A reviewed control-plane change requires a new Fixer MCP binary.",
+      "required_action": "Restart Fixer MCP and explicitly confirm the exact required build from a fresh process.",
+      "blocking_scope": "All later wave creation, launch, deferred release, repair, retry, and acceptance dispatch.",
+      "evidence_requirement": "Durable required/running build IDs and epochs, distinct process identities, restart confirmation, and explicit orchestration resume."
+    },
+    {
+      "id": "ARCH-WALLET-001",
+      "title": "Real-wallet funding and signature",
+      "trigger": "The controlled real-SOL transaction is ready with a validated preview and test wallet.",
+      "required_action": "Fund the test wallet if needed and sign the exact transaction explicitly.",
+      "blocking_scope": "Broadcast of any real crypto transaction.",
+      "evidence_requirement": "Recipient, amount, fees, hard cap, simulation result, explicit signature, transaction ID, and reconciliation record."
+    },
+    {
+      "id": "ARCH-EXCHANGE-FEE-001",
+      "title": "Exchange settlement fee",
+      "trigger": "Exchange settlement implementation needs a concrete fee schedule.",
+      "required_action": "Approve fee rate and minimum only after unit-economics and legal review.",
+      "blocking_scope": "Production Exchange settlement and public fee claims.",
+      "evidence_requirement": "Approved fee schedule, versioned policy, legal review, and enforcement tests."
+    },
+    {
+      "id": "ARCH-PAYMENTS-001",
+      "title": "Payment rails and commercial terms",
+      "trigger": "A payment or managed-provider integration is ready to leave sandbox/research.",
+      "required_action": "Approve the legally available operating entity, merchant path, refund rules, and provider commercial terms.",
+      "blocking_scope": "Production charges, recurring billing, and resale of managed model usage.",
+      "evidence_requirement": "Current primary-source terms, legal/tax findings, sandbox reconciliation, and signed provider/merchant account decision."
+    },
+    {
+      "id": "ARCH-COMPUTE-001",
+      "title": "Compute contracting and geography",
+      "trigger": "Fixer is ready to resell or coordinate third-party or contributed compute.",
+      "required_action": "Choose direct-customer versus reseller/MoR structure and approve geographic restrictions.",
+      "blocking_scope": "Production paid compute and cross-border contributed-resource scheduling.",
+      "evidence_requirement": "Provider contracts, sanctions/residency analysis, abuse model, and explicit operator contribution consent."
+    },
+    {
+      "id": "ARCH-GOVERNANCE-001",
+      "title": "Public-project legal wrapper",
+      "trigger": "On-chain/project units are ready to represent enforceable economic or ownership rights.",
+      "required_action": "Approve a legal wrapper and the boundary between on-chain rules and off-chain assets/IP.",
+      "blocking_scope": "Claims that units are equity, ownership, or legally enforceable revenue rights.",
+      "evidence_requirement": "Jurisdiction-specific legal review, constitution text, risk disclosures, and accepted governance tests."
+    },
+    {
+      "id": "ARCH-BRAND-001",
+      "title": "Product name and brand",
+      "trigger": "The combined landing and production surfaces are ready for public launch.",
+      "required_action": "Approve product name, logo, palette, and positioning.",
+      "blocking_scope": "Final branded launch assets and broad public campaign.",
+      "evidence_requirement": "Approved brand system and checked desktop, web, manager, and agent-readable applications."
+    }
+  ],
+  "features": [
+    {
+      "id": "R1-WAVE-001",
+      "domain": "control-plane",
+      "title": "Wave Engine v2 core lifecycle",
+      "summary": "Project-scoped recursive and batched waves with explicit phase, gate, control, failure governance, acceptance, immutable outcomes, and build-epoch restart fencing.",
+      "status": "verified",
+      "maturity": "alpha",
+      "decisions": [
+        "Null/zero child depth disables recursion and positive depth decrements through an acyclic root lineage.",
+        "Batch launch/wait is project-scoped and additive to the single-wave API.",
+        "Failure decisions are backend-enforced; a strict majority pauses and one eligible isolated failure gets at most one governed repair.",
+        "Acceptance is distinct from implementation review.",
+        "A required build epoch fences dispatch until a fresh matching process confirms it."
+      ],
+      "dependencies": [],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 21",
+          "note": "Current lifecycle, failure, acceptance, and restart contract."
+        },
+        {
+          "kind": "code",
+          "ref": "fixer_mcp/parallel_wave_state.go",
+          "note": "Lineage, failure policy, transition, and build-state implementation."
+        },
+        {
+          "kind": "code",
+          "ref": "fixer_mcp/parallel_wave_batch_handlers.go",
+          "note": "Project-scoped additive batch wrappers."
+        },
+        {
+          "kind": "test",
+          "ref": "fixer_mcp/parallel_wave_state_test.go",
+          "note": "State, failure, acceptance, and restart coverage."
+        },
+        {
+          "kind": "code",
+          "ref": "git:ee1a84a",
+          "note": "Reviewed base includes final linearizable restart hardening."
+        }
+      ],
+      "acceptance_criteria": [
+        "Validate root lineage, depth, descendant-wave and session ceilings transactionally.",
+        "Preserve single-wave behavior while isolating batch item failures.",
+        "Block reviewer, repair, retry, acceptance, and child dispatch under paused failure policy.",
+        "Keep implementation review and acceptance separately queryable.",
+        "Compare required/running epochs, build IDs, and distinct process identities without stale downgrade.",
+        "Keep terminal outcomes inspectable after cleanup."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          21
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [
+          "fixer_mcp/parallel_wave_state.go",
+          "fixer_mcp/parallel_wave_handlers.go",
+          "fixer_mcp/parallel_wave_batch_handlers.go"
+        ],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-RESTART-001"
+      ]
+    },
+    {
+      "id": "R1-WAVE-002",
+      "domain": "control-plane",
+      "title": "Wave observability, presets, and compute guardrails",
+      "summary": "Live logs/screenshots, acceptance profiles, explainable presets, history-derived recommendations, and root-wide spend/compute ceilings layered on v2.",
+      "status": "planned",
+      "maturity": "experimental",
+      "decisions": [
+        "Presets may be recommended but never silently launched.",
+        "Acceptance tools come from a versioned project test profile.",
+        "Spend/compute ceilings are durable root-wide guards."
+      ],
+      "dependencies": [
+        "R1-WAVE-001",
+        "R1-MC-002",
+        "R1-GATEWAY-001",
+        "R1-COMPUTE-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Remaining Wave Engine work not proven by the v2 core commits."
+        }
+      ],
+      "acceptance_criteria": [
+        "Stream bounded redacted logs and immutable screenshots.",
+        "Support quick-research and research-to-implementation-to-Flutter presets.",
+        "Explain history-derived preset suggestions and require explicit launch.",
+        "Snapshot required Playwright, Dart/Flutter, or backend acceptance checks.",
+        "Reserve and reconcile root-wide spend and compute budgets."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-MC-001",
+      "domain": "operator-experience",
+      "title": "Mission Control portfolio registry and visual maps",
+      "summary": "Stable IDs, schema, decisions, dependencies, evidence, acceptance links, runtime join contract, and dependency/critical-path map sources.",
+      "status": "verified",
+      "maturity": "alpha",
+      "decisions": [
+        "Static metadata is versioned in Git.",
+        "Live status stays in Fixer MCP and joins by feature ID.",
+        "Manual completion percentages are forbidden."
+      ],
+      "dependencies": [
+        "R1-WAVE-001"
+      ],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 85",
+          "note": "Mission Control epic and delivery order."
+        },
+        {
+          "kind": "runtime",
+          "ref": "wave:289/session:483/worker:557",
+          "note": "First post-restart Mission Control foundation worker."
+        },
+        {
+          "kind": "code",
+          "ref": "fixer_mcp/mission_control/feature_registry.json",
+          "note": "Machine-readable R1 portfolio."
+        },
+        {
+          "kind": "code",
+          "ref": "fixer_mcp/mission_control/feature_registry.schema.json",
+          "note": "Draft 2020-12 contract."
+        }
+      ],
+      "acceptance_criteria": [
+        "Parse and validate registry against its schema.",
+        "Give every feature all required metadata and resolvable references.",
+        "Encode all non-negotiable R1 decisions and gates.",
+        "Keep identical visible IDs in complete dependency and release-path Mermaid sources.",
+        "Document a deterministic renderer command when none is installed."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          85
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [
+          289
+        ],
+        "session_ids": [
+          483
+        ],
+        "worker_ids": [
+          557
+        ],
+        "artifact_paths": [
+          "fixer_mcp/mission_control/feature_registry.json",
+          "fixer_mcp/mission_control/feature_registry.schema.json",
+          "fixer_mcp/mission_control/maps/r1_dependency_graph.mmd",
+          "fixer_mcp/mission_control/maps/r1_release_critical_path.mmd"
+        ],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-MC-002",
+      "domain": "operator-experience",
+      "title": "Fixer Studio Mission Control surface",
+      "summary": "Responsive graph, board, filtered list, evidence drill-down, and prominent Architect-needed gates over static registry plus live state.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "Fixer Studio remains the canonical cockpit.",
+        "UI is a read model and cannot invent completion.",
+        "Feature drill-down links docs, tasks, waves, workers, screenshots, acceptance, and deployment."
+      ],
+      "dependencies": [
+        "R1-MC-001",
+        "R1-STUDIO-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Mission Control is the first high-priority product surface after restart."
+        }
+      ],
+      "acceptance_criteria": [
+        "Provide graph, board, and filtered-list views.",
+        "Derive live state and gates at read time.",
+        "Expose evidence and missing links without percentages.",
+        "Pass Flutter tests and responsive visual acceptance."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-TERM-001",
+      "domain": "operator-experience",
+      "title": "Rust Fixer terminal",
+      "summary": "Fast terminal and mux/session manager optimized for provider threads, with compact Fixer TUI and safe binary reconnection.",
+      "status": "research_required",
+      "maturity": "experimental",
+      "decisions": [
+        "Research maintained Rust terminal/mux bases before selection.",
+        "Support Codex, Claude Code, Antigravity, and Kimi.",
+        "Retain Python launcher until acceptance."
+      ],
+      "dependencies": [
+        "R1-WAVE-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Rust terminal is required and supersedes older no-fork canon."
+        }
+      ],
+      "acceptance_criteria": [
+        "Document upstream/license decision.",
+        "Provide terminal, mux, and create/resume/switch/inspect flows.",
+        "Preserve provider-neutral model/reasoning/MCP selection.",
+        "Benchmark process/CPU behavior.",
+        "Reconnect safely across build-epoch changes."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-LIMITS-001",
+      "domain": "models-and-gateway",
+      "title": "AI Limits integration",
+      "summary": "Integrate normalized provider quota/reset visibility into Studio while preserving the optional native macOS HUD.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "Credentials stay local.",
+        "Sync normalized usage/reset events only.",
+        "Keep quota, API use, entitlements, budgets, fiat, and crypto distinct."
+      ],
+      "dependencies": [
+        "R1-MC-002",
+        "R1-GATEWAY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "deployment",
+          "ref": "/home/operator/Desktop/projects/ai-limits",
+          "note": "Standalone HUD is installed with live providers and durable history."
+        },
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Studio integration must preserve the local HUD."
+        }
+      ],
+      "acceptance_criteria": [
+        "Discover collector capabilities portably.",
+        "Render live quota/reset without exposing credentials.",
+        "Keep HUD independently usable.",
+        "Verify durable history and unknown/failure states."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-GATEWAY-001",
+      "domain": "models-and-gateway",
+      "title": "Fixer AI Gateway",
+      "summary": "Sole routing, policy, accounting, entitlement, and budget boundary for managed model traffic and BYOK.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "BYOK uses encrypted/local secret handles through the gateway.",
+        "Use OpenRouter initially for Kimi/DeepSeek.",
+        "Add direct OpenAI, Anthropic, Gemini, and xAI adapters, then native Kimi/DeepSeek."
+      ],
+      "dependencies": [
+        "R1-MC-001",
+        "R1-IDENTITY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "All model consumption routes through the gateway, including BYOK."
+        }
+      ],
+      "acceptance_criteria": [
+        "Route all model calls through authenticated policy context.",
+        "Keep raw credentials out of transcripts/docs/telemetry.",
+        "Meter and enforce entitlements, budgets, and authority separately.",
+        "Support planned adapters and failover.",
+        "Pass isolation, accounting, idempotency, and redaction tests."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-PAYMENTS-001"
+      ]
+    },
+    {
+      "id": "R1-MODELS-001",
+      "domain": "models-and-gateway",
+      "title": "Model routing, forecasting, and benchmarking",
+      "summary": "Quota-aware routing, reproducible price/quality measurements, inference forecasts, and public/private leaderboards.",
+      "status": "planned",
+      "maturity": "experimental",
+      "decisions": [
+        "Use current reproducible measurements, not transcript estimates.",
+        "Benchmark Kimi Codex-style separately from Kimi Coder.",
+        "Compare orchestration outcomes, not only base models."
+      ],
+      "dependencies": [
+        "R1-GATEWAY-001",
+        "R1-MEMORY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Combines model forecast, routing, benchmark, scatter, and leaderboard requirements."
+        }
+      ],
+      "acceptance_criteria": [
+        "Forecast explicit Kimi/DeepSeek hardware targets.",
+        "Publish reproducible model/reasoning/price/quality/latency/quota evidence.",
+        "Provide reasoning-switchable scatter view.",
+        "Explain recommendations from measurements plus quota/budget.",
+        "Record outcome/cost/tokens/time/acceptance with privacy."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-SUB-001",
+      "domain": "commerce",
+      "title": "Optional subscription and entitlements",
+      "summary": "Optional paid tiers, usage, overage, expiry, cancellation/refund, top-up, and durable entitlement delivery.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "Never gate free self-hosting.",
+        "Keep entitlements distinct from quota, budgets, fiat, crypto, and compute credits."
+      ],
+      "dependencies": [
+        "R1-GATEWAY-001",
+        "R1-IDENTITY-001",
+        "R1-PAY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Optional subscription is one paid monetization path."
+        }
+      ],
+      "acceptance_criteria": [
+        "Version tier and lifecycle rules.",
+        "Make webhook and entitlement operations idempotent.",
+        "Expose a distinct auditable entitlement ledger.",
+        "Prove zero-payment self-hosted use."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-PAYMENTS-001"
+      ]
+    },
+    {
+      "id": "R1-PAY-001",
+      "domain": "commerce",
+      "title": "Web and Telegram payment rails",
+      "summary": "Russian/global web payments and Telegram digital-goods rails with legal review, sandbox accounting, and reconciliation.",
+      "status": "research_required",
+      "maturity": "experimental",
+      "decisions": [
+        "Research SBP/cards/recurring/fiscal receipts.",
+        "Choose a legally available global merchant path.",
+        "Use Telegram Stars where required."
+      ],
+      "dependencies": [
+        "R1-IDENTITY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Payment rails need current legal and commercial verification."
+        }
+      ],
+      "acceptance_criteria": [
+        "Redo missing Russia crypto-card/SBP research and research China/India separately.",
+        "Select rails from primary terms.",
+        "Pass sandbox signature/replay/refund/receipt/reconciliation tests.",
+        "Block production charging before Architect approval."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-PAYMENTS-001"
+      ]
+    },
+    {
+      "id": "R1-COMPUTE-001",
+      "domain": "compute",
+      "title": "Fixer Compute Gateway",
+      "summary": "Provisioning, metering, lifecycle, transparent cost, and policy boundary for Timeweb, GCP, and future infrastructure.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "Infrastructure routes through a gateway.",
+        "Show external cost without fabricated markup.",
+        "Agents buy only within operator authority."
+      ],
+      "dependencies": [
+        "R1-MC-001",
+        "R1-IDENTITY-001",
+        "R1-ECON-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Compute gateway starts with Timeweb and GCP."
+        }
+      ],
+      "acceptance_criteria": [
+        "Provision/meter/resize/stop/delete idempotently.",
+        "Enforce budget, authority, ceilings, and reconciliation.",
+        "Expose cost and contract mode.",
+        "Pass lifecycle, partial-failure, drift, isolation, and revocation tests."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-COMPUTE-001"
+      ]
+    },
+    {
+      "id": "R1-POOL-001",
+      "domain": "compute",
+      "title": "Opt-in decentralized compute pool",
+      "summary": "Explicit CPU/GPU contribution, auditable credits, scheduling, isolation, verification, abuse controls, and open-model inference.",
+      "status": "research_required",
+      "maturity": "experimental",
+      "decisions": [
+        "No contribution without operator opt-in.",
+        "Credits stay distinct from money, crypto, and ownership.",
+        "Reuse Yasnoset concepts only after review."
+      ],
+      "dependencies": [
+        "R1-COMPUTE-001",
+        "R1-MODELS-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Shared compute must be opt-in, metered, revocable, and isolated."
+        }
+      ],
+      "acceptance_criteria": [
+        "Implement enroll/pause/revoke and policy controls.",
+        "Meter resources and issue non-cash credits.",
+        "Verify isolated workloads and abuse response.",
+        "Run measured open-model inference.",
+        "Complete China/India hosting and compliance research."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-COMPUTE-001"
+      ]
+    },
+    {
+      "id": "R1-IDENTITY-001",
+      "domain": "identity-and-economy",
+      "title": "Identity, tenancy, and separated balances",
+      "summary": "User/project identity, Telegram auth, tenant-safe accounting, and separation of all quota, entitlement, budget, money, crypto, credit, and unit domains.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "Authorization is server-enforced.",
+        "Every balance class has a typed ledger and tenant boundary."
+      ],
+      "dependencies": [
+        "R1-MC-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Identity and tenant-safe balances precede subscriptions, wallets, compute, and public projects."
+        }
+      ],
+      "acceptance_criteria": [
+        "Authenticate users and authorize every project operation.",
+        "Prove cross-tenant denial across all entities.",
+        "Expose separately typed immutable ledgers.",
+        "Evaluate TON without coupling auth to custody."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-WALLET-001",
+      "domain": "identity-and-economy",
+      "title": "Non-custodial project wallets and real signature gate",
+      "summary": "Project wallet creation/linking and one controlled real-SOL transaction after preview, cap, notification, funding, and explicit signature.",
+      "status": "planned",
+      "maturity": "experimental",
+      "decisions": [
+        "Wallet setup belongs in project initialization.",
+        "No silent signing or broadcast.",
+        "The first real transaction is a hard Architect stop."
+      ],
+      "dependencies": [
+        "R1-IDENTITY-001",
+        "R1-ECON-001",
+        "R1-PROD-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Real crypto requires explicit signature and hard spend cap."
+        }
+      ],
+      "acceptance_criteria": [
+        "Keep signing material out of logs/docs.",
+        "Preview network/recipient/amount/fees/simulation/cap.",
+        "Notify when funding is needed.",
+        "Require signature before broadcast and reconcile transaction.",
+        "Reject replay, wrong network, mutation, cap breach, stale preview, or missing signature."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-WALLET-001"
+      ]
+    },
+    {
+      "id": "R1-ECON-001",
+      "domain": "identity-and-economy",
+      "title": "Project economy, budgets, escrow, and settlement",
+      "summary": "Extend Economy v0 balance, spend authority, and ledger into model/infra budgets, escrow, and settlement splits.",
+      "status": "active",
+      "maturity": "experimental",
+      "decisions": [
+        "Retain Economy v0 as audited base.",
+        "Costs draw only from approved budgets.",
+        "Do not collapse distinct asset/entitlement/unit types."
+      ],
+      "dependencies": [
+        "R1-IDENTITY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 64",
+          "note": "Economy v0 contract."
+        },
+        {
+          "kind": "code",
+          "ref": "fixer_mcp/economy_handlers.go",
+          "note": "Current control-plane implementation."
+        },
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "R1 extends Economy v0."
+        }
+      ],
+      "acceptance_criteria": [
+        "Preserve role-gated balance/allowance/ledger behavior.",
+        "Add typed model and infrastructure budgets.",
+        "Implement idempotent escrow/release/refund/splits.",
+        "Reconcile actor, authority, source, and rail reference."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          64
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [
+          "fixer_mcp/economy_handlers.go"
+        ],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-GOV-001",
+      "domain": "identity-and-economy",
+      "title": "Public-project ownership and governance",
+      "summary": "Public/private choice, Creator/Commons units, team editor, proposals, protected voting, timelock, execution, and constitution.",
+      "status": "research_required",
+      "maturity": "experimental",
+      "decisions": [
+        "Initialize public integrated projects with 50 Creator and 50 Commons units.",
+        "Creator allocates teammates only from Creator Pool.",
+        "Protect constitutional changes with a community threshold."
+      ],
+      "dependencies": [
+        "R1-IDENTITY-001",
+        "R1-ECON-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Governance must connect on-chain rules to off-chain rights honestly."
+        }
+      ],
+      "acceptance_criteria": [
+        "Audit 100-unit initialization/allocation.",
+        "Provide team/ownership editor and history.",
+        "Implement quorum/supermajority/community threshold/timelock/pause.",
+        "Publish constitution and risks.",
+        "Avoid legal ownership claims before approval."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-GOVERNANCE-001"
+      ]
+    },
+    {
+      "id": "R1-EXCHANGE-001",
+      "domain": "network-and-market",
+      "title": "Governed Fixer Exchange",
+      "summary": "Creator/governance-controlled opt-in with enforceable settlement fees and no post-opt-in bypass.",
+      "status": "planned",
+      "maturity": "experimental",
+      "decisions": [
+        "Creator decides before governance; governed body after.",
+        "Self-hosting stays free.",
+        "Exchange transactions enforce the approved fee.",
+        "Fee rate remains unset."
+      ],
+      "dependencies": [
+        "R1-ECON-001",
+        "R1-GOV-001",
+        "R1-PAY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 58",
+          "note": "Network direction; former 0% fee is superseded."
+        },
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "R1 makes Exchange opt-in governed and fee enforcement mandatory."
+        }
+      ],
+      "acceptance_criteria": [
+        "Audit opt-in decisions.",
+        "Disclose and enforce active fee.",
+        "Prevent Exchange settlement bypass.",
+        "Keep non-Exchange operation free.",
+        "Ship no fee rate before approval."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          58
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-EXCHANGE-FEE-001",
+        "ARCH-GOVERNANCE-001"
+      ]
+    },
+    {
+      "id": "R1-MARKET-001",
+      "domain": "network-and-market",
+      "title": "A2A discovery, investment, and project market",
+      "summary": "Evidence-ranked public projects, investor/team profiles, bounded investment, donations, legal presets, live demos, and education revenue.",
+      "status": "planned",
+      "maturity": "experimental",
+      "decisions": [
+        "Fixer MCP is the first public/investable project.",
+        "Rank from delivery, market, reputation, stage, and risk evidence.",
+        "Agents need bounded operator authority.",
+        "Never gameify away financial risk."
+      ],
+      "dependencies": [
+        "R1-EXCHANGE-001",
+        "R1-MEMORY-001",
+        "R1-WALLET-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Combines A2A, investment, project-market, donation, and education tracks."
+        }
+      ],
+      "acceptance_criteria": [
+        "Support opt-in projects with demo/health evidence.",
+        "Run market analysis per public project.",
+        "Ingest profiles/CVs with privacy.",
+        "Implement bounded investment/donation and disclosures.",
+        "Provide plain-language legal presets and milestones."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-GOVERNANCE-001",
+        "ARCH-WALLET-001",
+        "ARCH-PAYMENTS-001"
+      ]
+    },
+    {
+      "id": "R1-MEMORY-001",
+      "domain": "memory-and-reputation",
+      "title": "Privacy-safe memory, reputation, and outcome benchmarking",
+      "summary": "Semantic retrieval over reviewed docs/history, reputation-aware ranking without lock-in, opt-in controls, anti-gaming, and outcome measures.",
+      "status": "planned",
+      "maturity": "experimental",
+      "decisions": [
+        "Memory is the moat.",
+        "Exclude secrets through handles/redaction.",
+        "Avoid permanent rich-get-richer ranking."
+      ],
+      "dependencies": [
+        "R1-IDENTITY-001",
+        "R1-PROD-001"
+      ],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 58",
+          "note": "get_common_netrunners and reputation-memory thesis."
+        },
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "R1 adds privacy, opt-in, anti-gaming, and outcome safeguards."
+        }
+      ],
+      "acceptance_criteria": [
+        "Build get_common_netrunners over canonical docs/reviewed history.",
+        "Enforce secret, tenant, and publicity boundaries.",
+        "Return explainable ranking with diversity/freshness.",
+        "Measure delivery/cost/tokens/time/acceptance/results.",
+        "Provide opt-in/export/delete and anti-gaming evaluation."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          58
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-STUDIO-001",
+      "domain": "operator-experience",
+      "title": "Canonical Fixer Studio product surfaces",
+      "summary": "Preserve provider-neutral cockpit and add Waves, Limits/Billing, Compute, Team/Ownership, Investor, creation, and time-management surfaces.",
+      "status": "active",
+      "maturity": "alpha",
+      "decisions": [
+        "Do not revive App Server cockpit.",
+        "GenUI cannot become another source of truth.",
+        "Consider artifact sidecars only after dedicated screens."
+      ],
+      "dependencies": [
+        "R1-MC-001"
+      ],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 22",
+          "note": "Current desktop/operator surface."
+        },
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Extend the existing cockpit."
+        }
+      ],
+      "acceptance_criteria": [
+        "Preserve existing project/backlog/docs/Netrunner/chat/orders/skills/Overseer flows.",
+        "Add dedicated R1 navigation.",
+        "Add complete project creation.",
+        "Add Now/Next/Blocked/Awaiting Architect.",
+        "Route mutations through reviewed APIs."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          22
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-SHIPFLOW-001",
+      "domain": "operator-experience",
+      "title": "ShipFlow manager-facing slice",
+      "summary": "Preserve verified localized tenant-safe staging and add manager-readable feature, wave, acceptance, and budget state.",
+      "status": "active",
+      "maturity": "alpha",
+      "decisions": [
+        "ShipFlow is not orchestration truth.",
+        "Manager tenancy fails closed and bounded dispatch cannot choose privileged runtime fields."
+      ],
+      "dependencies": [
+        "R1-MC-001",
+        "R1-WAVE-001",
+        "R1-ECON-001"
+      ],
+      "evidence": [
+        {
+          "kind": "canon",
+          "ref": "Fixer MCP project doc 81",
+          "note": "Verified staging/localization/isolation/bridge."
+        },
+        {
+          "kind": "deployment",
+          "ref": "http://77.95.201.40",
+          "note": "HTTP-only staging; unsafe for remote credentials."
+        }
+      ],
+      "acceptance_criteria": [
+        "Preserve localization/isolation/population/bridge.",
+        "Render manager state from Fixer MCP.",
+        "Complete Architect-triggered Sports Teams smoke.",
+        "Require TLS before remote credential use."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [
+          81
+        ],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": [
+          "http://77.95.201.40"
+        ]
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-AGENTS-001",
+      "domain": "agent-discovery",
+      "title": "AGENTS_MANIFEST compact",
+      "summary": "Agent-readable product compact, distinct from AGENTS.md, stating purpose, open protocol, consent, safety, notification, opt-out, and export.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "State humanity goal and open-protocol commitments.",
+        "Notify operator before economy/compute participation.",
+        "Ban hidden spend, credentials, and resource contribution."
+      ],
+      "dependencies": [
+        "R1-GEO-001",
+        "R1-PROD-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "AGENTS_MANIFEST.md is a product artifact, not local agent instructions."
+        }
+      ],
+      "acceptance_criteria": [
+        "Publish capability/pricing/self-hosting/safety/governance facts.",
+        "Include operator notification template.",
+        "Make hidden actions non-compliant.",
+        "Verify consistency with actual product behavior."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-GEO-001",
+      "domain": "agent-discovery",
+      "title": "Multilingual GEO and agent-readable discovery",
+      "summary": "Multilingual capability, pricing, provider, install, safety, governance, and self-hosting pages for accurate agent discovery.",
+      "status": "research_required",
+      "maturity": "experimental",
+      "decisions": [
+        "Make free OSS/self-hosting explicit everywhere.",
+        "Measure mentions/referrals/installs/conversion and misleading recommendations.",
+        "Research public builders before targeted outreach."
+      ],
+      "dependencies": [
+        "R1-LANDING-001",
+        "R1-MC-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "GEO targets agent-era AI subscription/orchestration queries."
+        }
+      ],
+      "acceptance_criteria": [
+        "Publish multilingual machine-readable facts.",
+        "Measure discovery plus errors.",
+        "Test representative multilingual queries.",
+        "Complete primary-source research before named outreach."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-LANDING-001",
+      "domain": "product-and-production",
+      "title": "Combined Fixer landing and brand",
+      "summary": "One product story led by orchestration, limits, budgets, delivery, and free self-hosting, with economy explained progressively.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "No disconnected AI Limits microsite.",
+        "Keep $0 self-hosting explicit.",
+        "Use one approved brand across surfaces."
+      ],
+      "dependencies": [
+        "R1-STUDIO-001",
+        "R1-SUB-001",
+        "R1-EXCHANGE-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Landing represents combined product and honest maturity."
+        }
+      ],
+      "acceptance_criteria": [
+        "Publish accurate responsive landing.",
+        "Show free self-hosting and maturity labels.",
+        "Apply approved brand consistently.",
+        "Pass fact/accessibility/visual/analytics/smoke checks."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": [
+        "ARCH-BRAND-001",
+        "ARCH-EXCHANGE-FEE-001"
+      ]
+    },
+    {
+      "id": "R1-PROD-001",
+      "domain": "product-and-production",
+      "title": "Production security, tenancy, release, and operations",
+      "summary": "RBAC, TLS, isolation, secret handles, portable packaging, signed releases, migrations, backups, observability, abuse controls, rollback, and acceptance.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "No machine-specific identity/release assumptions.",
+        "Secrets never enter transcripts/docs/registry/vector memory.",
+        "Label every surface honestly."
+      ],
+      "dependencies": [
+        "R1-WAVE-001",
+        "R1-IDENTITY-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Production readiness spans backend, Flutter, payments, wallet, and deployment."
+        }
+      ],
+      "acceptance_criteria": [
+        "Replace hard-coded identity with RBAC.",
+        "Enforce TLS and tenant isolation everywhere.",
+        "Prove secret redaction.",
+        "Make release portable and signed where needed.",
+        "Exercise migrations/backups/reconciliation/observability/rollback.",
+        "Pass backend/Flutter/manual/payment/wallet/deployment gates."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    },
+    {
+      "id": "R1-DOCS-001",
+      "domain": "product-and-production",
+      "title": "Canonical product documentation and R1 completion audit",
+      "summary": "Canonical product/marketing/brand/strategy/GEO docs and a final evidence-backed audit and handoff.",
+      "status": "planned",
+      "maturity": "alpha",
+      "decisions": [
+        "Fixer MCP project docs are canon; repo docs are product artifacts/evidence.",
+        "Never hide unchecked work behind a percentage."
+      ],
+      "dependencies": [
+        "R1-MC-001",
+        "R1-PROD-001",
+        "R1-GEO-001"
+      ],
+      "evidence": [
+        {
+          "kind": "decision",
+          "ref": "FIXER_R1_GRAND_RUN_CHECKLIST.md",
+          "note": "Completion requires source reread, evidence reconciliation, explicit remaining work, docs, and handoff."
+        }
+      ],
+      "acceptance_criteria": [
+        "Organize canonical docs without mixing history.",
+        "Re-read checklist and transcript.",
+        "Reconcile every claim with evidence.",
+        "List every unchecked item.",
+        "Persist feature/wave/blocker/gate/next-action handoff."
+      ],
+      "runtime_links": {
+        "project_doc_ids": [],
+        "backlog_item_ids": [],
+        "wave_ids": [],
+        "session_ids": [],
+        "worker_ids": [],
+        "artifact_paths": [],
+        "deployment_urls": []
+      },
+      "architect_gate_ids": []
+    }
+  ]
+}

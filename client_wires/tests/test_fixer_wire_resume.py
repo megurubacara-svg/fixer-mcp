@@ -290,6 +290,166 @@ class FixerWireResumeTests(unittest.TestCase):
         self.assertIn(("junie", "junie-fixer"), by_provider)
         self.assertIn(("antigravity", "agy-fixer"), by_provider)
 
+    def test_load_overseer_resume_summaries_discovers_every_supported_provider_with_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            cwd = Path(tmp) / "workspace"
+            cwd.mkdir()
+            slug = fixer_wire_resume._project_store_slug(cwd)
+
+            codex_log = Path(tmp) / "codex-overseer.jsonl"
+            codex_log.write_text(
+                '\n'.join(
+                    [
+                        '{"timestamp":"2026-02-01T10:00:00Z","type":"session_meta","payload":{"cwd":"'
+                        + str(cwd.resolve())
+                        + '"}}',
+                        '{"timestamp":"2026-02-01T10:01:00Z","type":"turn_context","payload":{"model":"gpt-5.6-sol","effort":"high"}}',
+                        'Activate skill `$init-overseer` immediately.',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            codex_summary = _make_history_summary("codex-overseer", preview="Codex Overseer")
+            history_module = _fake_codex_history_module(
+                [codex_summary],
+                {"codex-overseer": codex_log},
+            )
+
+            claude_dir = home / ".claude" / "projects" / slug
+            claude_dir.mkdir(parents=True)
+            (claude_dir / "claude-overseer.jsonl").write_text(
+                '{"type":"user","sessionId":"claude-overseer","model":"opus",'
+                '"timestamp":"2026-02-01T11:00:00Z","message":{"role":"user",'
+                '"content":"Activate skill `$init-overseer` immediately."}}\n',
+                encoding="utf-8",
+            )
+
+            droid_dir = home / ".factory" / "sessions" / slug
+            droid_dir.mkdir(parents=True)
+            (droid_dir / "droid-overseer.jsonl").write_text(
+                '{"id":"droid-overseer","cwd":"'
+                + str(cwd.resolve())
+                + '","model":"glm-5.1","sessionTitle":"Droid Overseer"}\n'
+                + '{"message":{"role":"user","content":"Activate skill `$init-overseer` immediately."}}\n',
+                encoding="utf-8",
+            )
+
+            junie_root = home / ".junie" / "sessions"
+            (junie_root / "junie-overseer").mkdir(parents=True)
+            (junie_root / "index.jsonl").write_text(
+                '{"sessionId":"junie-overseer","projectDir":"'
+                + str(cwd.resolve())
+                + '","model":"kimi-k2.6","createdAt":"2026-02-01T12:00:00Z",'
+                '"updatedAt":"2026-02-01T12:30:00Z","taskName":"Junie Overseer"}\n',
+                encoding="utf-8",
+            )
+            (junie_root / "junie-overseer" / "state.json").write_text(
+                '{"prompt":"Activate skill `$init-overseer` immediately."}',
+                encoding="utf-8",
+            )
+
+            agy_root = home / ".gemini" / "antigravity-cli"
+            (agy_root / "cache").mkdir(parents=True)
+            (agy_root / "conversations").mkdir(parents=True)
+            (agy_root / "cache" / "last_conversations.json").write_text(
+                '{"' + str(cwd.resolve()) + '":"agy-overseer"}',
+                encoding="utf-8",
+            )
+            (agy_root / "conversations" / "agy-overseer.db").write_text(
+                "Use the `init-overseer` skill immediately.\nOverseer routing thread\n",
+                encoding="utf-8",
+            )
+
+            kimi_root = home / ".kimi"
+            kimi_session = (
+                kimi_root
+                / "sessions"
+                / fixer_wire_resume._kimi_workdir_hash(cwd)
+                / "kimi-overseer"
+            )
+            kimi_session.mkdir(parents=True)
+            (kimi_session / "context.jsonl").write_text(
+                '{"type":"user","model":"kimi-k2.7-code","message":{"role":"user",'
+                '"content":"Activate skill `$init-overseer` immediately."}}\n',
+                encoding="utf-8",
+            )
+            (kimi_session / "state.json").write_text(
+                '{"title":"Kimi Overseer"}',
+                encoding="utf-8",
+            )
+
+            with (
+                patch.dict(sys.modules, {"client_wires.codex_compat.sessions": history_module}),
+                patch.object(Path, "home", return_value=home),
+            ):
+                summaries = fixer_wire._load_overseer_resume_summaries(cwd, limit=12)
+
+        by_provider = {summary.provider: summary for summary in summaries}
+        self.assertEqual(
+            set(by_provider),
+            {"codex", "claude", "droid", "junie", "antigravity", "kimi-code"},
+        )
+        self.assertEqual(by_provider["codex"].model, "gpt-5.6-sol")
+        self.assertEqual(by_provider["codex"].reasoning, "high")
+        self.assertEqual(by_provider["claude"].model, "opus")
+        self.assertEqual(by_provider["kimi-code"].session_id, "kimi-overseer")
+        for summary in summaries:
+            self.assertEqual(summary.cwd, cwd.resolve())
+            self.assertTrue(summary.model)
+            self.assertTrue(summary.reasoning)
+            self.assertNotEqual(summary.origin, "provider_history")
+
+    def test_load_fixer_resume_summaries_discovers_both_kimi_stores_and_excludes_other_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            cwd = Path(tmp) / "workspace" / "kimi-project"
+            cwd.mkdir(parents=True)
+            history_module = _fake_codex_history_module([], {})
+
+            legacy_root = home / ".kimi" / "sessions" / fixer_wire_resume._kimi_workdir_hash(cwd)
+            legacy_fixer = legacy_root / "kimi-cli-fixer"
+            legacy_fixer.mkdir(parents=True)
+            (legacy_fixer / "context.jsonl").write_text(
+                '{"type":"user","model":"kimi-k2.7-code",'
+                '"message":{"role":"user","content":"Activate skill `$init-fixer` immediately."}}\n',
+                encoding="utf-8",
+            )
+            (legacy_fixer / "state.json").write_text('{"title":"Kimi CLI Fixer"}', encoding="utf-8")
+            legacy_other = legacy_root / "kimi-cli-netrunner"
+            legacy_other.mkdir()
+            (legacy_other / "context.jsonl").write_text(
+                "Activate skill `$run-manual-netrunner` immediately.\n",
+                encoding="utf-8",
+            )
+
+            native_root = home / ".kimi-code" / "sessions" / fixer_wire_resume._kimi_native_workdir_name(cwd)
+            native_fixer = native_root / "kimi-native-fixer"
+            native_fixer.mkdir(parents=True)
+            (native_fixer / "context.jsonl").write_text(
+                "Activate skill `$init-fixer` immediately.\n",
+                encoding="utf-8",
+            )
+            (native_fixer / "state.json").write_text('{"title":"Native Kimi Fixer"}', encoding="utf-8")
+            native_other = native_root / "kimi-native-overseer"
+            native_other.mkdir()
+            (native_other / "context.jsonl").write_text(
+                "Activate skill `$init-overseer` immediately.\n",
+                encoding="utf-8",
+            )
+
+            with (
+                patch.dict(sys.modules, {"client_wires.codex_compat.sessions": history_module}),
+                patch.object(Path, "home", return_value=home),
+            ):
+                summaries = fixer_wire._load_fixer_resume_summaries(cwd, limit=10)
+
+        discovered = {(fixer_wire_resume.summary_provider(summary), summary.session_id) for summary in summaries}
+        self.assertIn(("kimi-code", "kimi-cli-fixer"), discovered)
+        self.assertIn(("kimi-code-native", "kimi-native-fixer"), discovered)
+        self.assertNotIn(("kimi-code", "kimi-cli-netrunner"), discovered)
+        self.assertNotIn(("kimi-code-native", "kimi-native-overseer"), discovered)
+
     def test_preview_from_records_reads_claude_message_content_not_role(self) -> None:
         preview = fixer_wire_resume._preview_from_records(
             [

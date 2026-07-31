@@ -17,6 +17,11 @@ from .base import (
 from .catalog import load_backend_entry
 
 
+ANTIGRAVITY_MCP_TIMEOUT_SECONDS = 120 * 60
+ANTIGRAVITY_MCP_TIMEOUT_ENV = "FIXER_ANTIGRAVITY_MCP_TIMEOUT_SECONDS"
+ANTIGRAVITY_FIXER_MCP_SERVER = "fixer_mcp"
+
+
 class AntigravityBackendAdapter(BackendAdapter):
     def __init__(self) -> None:
         entry = load_backend_entry("antigravity")
@@ -117,7 +122,12 @@ class AntigravityBackendAdapter(BackendAdapter):
         prompt: str,
     ) -> list[str]:
         del selected, available
-        command = [self.command, "--dangerously-skip-permissions"]
+        command = [
+            self.command,
+            "--dangerously-skip-permissions",
+            "--print-timeout",
+            _antigravity_print_timeout(),
+        ]
         command.extend(self._build_model_args(model, reasoning))
         trimmed = self._build_antigravity_prompt(prompt)
         if trimmed:
@@ -141,6 +151,11 @@ class AntigravityBackendAdapter(BackendAdapter):
                 continue
             if "command" in server_payload and not str(server_payload.get("command", "")).strip():
                 continue
+            if name == ANTIGRAVITY_FIXER_MCP_SERVER:
+                # Antigravity's MCP client defaults tool calls to a short
+                # timeout. Keep the durable Fixer server usable for long
+                # research/build operations in both config scopes.
+                server_payload["timeoutSeconds"] = _antigravity_mcp_timeout_seconds()
             mcp_servers[name] = server_payload
 
         agents_dir = cwd / ".agents"
@@ -168,6 +183,9 @@ _ANTIGRAVITY_CLI_MODEL_OPTIONS = (
     "Gemini 3.5 Flash (Medium)",
     "Gemini 3.5 Flash (High)",
     "Gemini 3.5 Flash (Low)",
+    "Gemini 3.6 Flash (Medium)",
+    "Gemini 3.6 Flash (High)",
+    "Gemini 3.6 Flash (Low)",
     "Gemini 3.1 Pro (Low)",
     "Gemini 3.1 Pro (High)",
     "Claude Sonnet 4.6 (Thinking)",
@@ -199,6 +217,25 @@ def _merge_antigravity_user_mcp_config(mcp_servers: Mapping[str, Mapping[str, ob
     payload["mcpServers"] = existing_servers
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _antigravity_mcp_timeout_seconds() -> int:
+    raw_value = os.environ.get(ANTIGRAVITY_MCP_TIMEOUT_ENV, "").strip()
+    if raw_value:
+        try:
+            configured = int(raw_value)
+        except ValueError:
+            configured = 0
+        if configured > 0:
+            return configured
+    return ANTIGRAVITY_MCP_TIMEOUT_SECONDS
+
+
+def _antigravity_print_timeout() -> str:
+    seconds = _antigravity_mcp_timeout_seconds()
+    if seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
 
 
 def _read_json_object(path: Path) -> dict[str, object]:

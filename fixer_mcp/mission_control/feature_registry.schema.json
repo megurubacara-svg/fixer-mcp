@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fixer.local/schemas/mission-control/feature-registry.schema.json",
+  "title": "Fixer R1 Mission Control feature registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "registry_id",
+    "title",
+    "as_of",
+    "source_snapshot",
+    "runtime_observation_contract",
+    "global_decisions",
+    "architect_gates",
+    "features"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "registry_id": { "const": "fixer-r1" },
+    "title": { "type": "string", "minLength": 1 },
+    "as_of": { "type": "string", "format": "date" },
+    "source_snapshot": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "runtime_observation_contract": { "$ref": "#/$defs/runtimeObservationContract" },
+    "global_decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/globalDecision" }
+    },
+    "architect_gates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architectGate" }
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/feature" }
+    }
+  },
+  "$defs": {
+    "nonEmptyStringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "integerArray": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "uniqueItems": true
+    },
+    "runtimeObservationContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_of_truth",
+        "join_key",
+        "embedded_runtime_state",
+        "manual_percentages_allowed",
+        "observed_entities"
+      ],
+      "properties": {
+        "source_of_truth": { "const": "Fixer MCP runtime state" },
+        "join_key": { "const": "feature_id" },
+        "embedded_runtime_state": { "const": false },
+        "manual_percentages_allowed": { "const": false },
+        "observed_entities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "backlog_items",
+              "sessions",
+              "waves",
+              "workers",
+              "screenshots",
+              "acceptance_runs",
+              "deployments",
+              "architect_gates"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "globalDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "decision", "evidence_refs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^DEC-[A-Z0-9-]+$" },
+        "decision": { "type": "string", "minLength": 1 },
+        "evidence_refs": { "$ref": "#/$defs/nonEmptyStringArray" }
+      }
+    },
+    "architectGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "trigger",
+        "required_action",
+        "blocking_scope",
+        "evidence_requirement"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^ARCH-[A-Z0-9-]+-[0-9]{3}$" },
+        "title": { "type": "string", "minLength": 1 },
+        "trigger": { "type": "string", "minLength": 1 },
+        "required_action": { "type": "string", "minLength": 1 },
+        "blocking_scope": { "type": "string", "minLength": 1 },
+        "evidence_requirement": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "note"],
+      "properties": {
+        "kind": {
+          "enum": ["decision", "canon", "code", "test", "deployment", "runtime", "research"]
+        },
+        "ref": { "type": "string", "minLength": 1 },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "runtimeLinks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_doc_ids",
+        "backlog_item_ids",
+        "wave_ids",
+        "session_ids",
+        "worker_ids",
+        "artifact_paths",
+        "deployment_urls"
+      ],
+      "properties": {
+        "project_doc_ids": { "$ref": "#/$defs/integerArray" },
+        "backlog_item_ids": { "$ref": "#/$defs/integerArray" },
+        "wave_ids": { "$ref": "#/$defs/integerArray" },
+        "session_ids": { "$ref": "#/$defs/integerArray" },
+        "worker_ids": { "$ref": "#/$defs/integerArray" },
+        "artifact_paths": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "deployment_urls": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "domain",
+        "title",
+        "summary",
+        "status",
+        "maturity",
+        "decisions",
+        "dependencies",
+        "evidence",
+        "acceptance_criteria",
+        "runtime_links",
+        "architect_gate_ids"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^R1-[A-Z][A-Z0-9]*-[0-9]{3}$" },
+        "domain": {
+          "enum": [
+            "control-plane",
+            "operator-experience",
+            "models-and-gateway",
+            "commerce",
+            "compute",
+            "identity-and-economy",
+            "network-and-market",
+            "memory-and-reputation",
+            "agent-discovery",
+            "product-and-production"
+          ]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": ["verified", "active", "planned", "research_required", "blocked", "superseded"]
+        },
+        "maturity": { "enum": ["stable", "alpha", "experimental"] },
+        "decisions": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "dependencies": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^R1-[A-Z][A-Z0-9]*-[0-9]{3}$" },
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "runtime_links": { "$ref": "#/$defs/runtimeLinks" },
+        "architect_gate_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^ARCH-[A-Z0-9-]+-[0-9]{3}$" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

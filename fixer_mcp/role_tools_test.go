@@ -101,6 +101,7 @@ func TestBootstrapDefaultRoleAuthRejectsOrdinaryFixerServer(t *testing.T) {
 	t.Setenv(fixerMcpDefaultCwdEnv, testProjectCWD)
 	t.Setenv(fixerMcpLockedRoleEnv, "fixer")
 	t.Setenv(fixerMcpAutoAuthEnv, "1")
+	t.Setenv(fixerMcpToolProfileEnv, "")
 	authorizedRole = ""
 	authorizedProjectId = 0
 	authorizedSessionId = 999
@@ -245,19 +246,19 @@ func TestLockedRoleToolSurfacesHideForeignAndAdminTools(t *testing.T) {
 			name:       "overseer",
 			lockedRole: "overseer",
 			present:    []string{"assume_role", "get_projects", "launch_and_wait_fixers", "append_overseer_fixer_message", "get_project_balance", "credit_project_balance", "set_fixer_spend_authority", "get_balance_ledger"},
-			absent:     []string{"create_task", "checkout_task", "log_netrunner_progress", "view_netrunner_logs", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous", "record_fixer_spend"},
+			absent:     []string{"create_task", "checkout_task", "log_netrunner_progress", "view_netrunner_logs", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "launch_netrunner_waves", "wait_for_netrunner_waves", "transition_netrunner_wave_phase", "set_netrunner_wave_control_state", "get_mcp_binary_restart_state", "set_mcp_binary_restart_state", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous", "record_fixer_spend"},
 		},
 		{
 			name:       "fixer",
 			lockedRole: "fixer",
-			present:    []string{"assume_role", "create_task", "view_netrunner_logs", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "review_doc_proposals", "get_project_balance", "record_fixer_spend", "get_balance_ledger"},
+			present:    []string{"assume_role", "create_task", "view_netrunner_logs", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "launch_netrunner_waves", "wait_for_netrunner_waves", "transition_netrunner_wave_phase", "set_netrunner_wave_control_state", "get_mcp_binary_restart_state", "set_mcp_binary_restart_state", "cleanup_netrunner_wave", "review_doc_proposals", "get_project_balance", "record_fixer_spend", "get_balance_ledger"},
 			absent:     []string{"get_projects", "checkout_task", "log_netrunner_progress", "complete_task", "sync_mcp_servers", "clear_project_handoff", "wake_fixer_autonomous", "credit_project_balance", "set_fixer_spend_authority"},
 		},
 		{
 			name:       "netrunner",
 			lockedRole: "netrunner",
 			present:    []string{"assume_role", "checkout_task", "log_netrunner_progress", "complete_task", "wake_fixer_autonomous"},
-			absent:     []string{"get_projects", "create_task", "view_netrunner_logs", "review_doc_proposals", "launch_and_wait_netrunner", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "get_project_balance", "credit_project_balance", "set_fixer_spend_authority", "record_fixer_spend", "get_balance_ledger"},
+			absent:     []string{"get_projects", "create_task", "view_netrunner_logs", "review_doc_proposals", "create_netrunner_wave", "get_netrunner_wave", "launch_netrunner_wave", "wait_for_netrunner_wave", "launch_netrunner_waves", "wait_for_netrunner_waves", "transition_netrunner_wave_phase", "set_netrunner_wave_control_state", "get_mcp_binary_restart_state", "set_mcp_binary_restart_state", "cleanup_netrunner_wave", "sync_mcp_servers", "clear_project_handoff", "get_project_balance", "credit_project_balance", "set_fixer_spend_authority", "record_fixer_spend", "get_balance_ledger"},
 		},
 	}
 
@@ -283,9 +284,10 @@ func TestLockedRoleToolSurfacesHideForeignAndAdminTools(t *testing.T) {
 
 func TestNetrunnerGateToolSurfaceContainsOnlyBlockingOrchestration(t *testing.T) {
 	expected := []string{
-		launchAndWaitNetrunnerToolName,
 		launchNetrunnerWaveToolName,
 		waitForNetrunnerWaveToolName,
+		launchNetrunnerWavesToolName,
+		waitForNetrunnerWavesToolName,
 	}
 	if len(netrunnerGateToolNames) != len(expected) {
 		t.Fatalf("unexpected direct Netrunner gate surface: %#v", netrunnerGateToolNames)
@@ -309,11 +311,16 @@ func TestUnlockedToolSurfaceKeepsLegacyBroadTools(t *testing.T) {
 		"create_task",
 		"checkout_task",
 		"complete_task",
-		"launch_and_wait_netrunner",
 		"create_netrunner_wave",
 		"get_netrunner_wave",
 		"launch_netrunner_wave",
 		"wait_for_netrunner_wave",
+		"launch_netrunner_waves",
+		"wait_for_netrunner_waves",
+		"transition_netrunner_wave_phase",
+		"set_netrunner_wave_control_state",
+		"get_mcp_binary_restart_state",
+		"set_mcp_binary_restart_state",
 		"cleanup_netrunner_wave",
 		"wake_fixer_autonomous",
 		"get_project_balance",

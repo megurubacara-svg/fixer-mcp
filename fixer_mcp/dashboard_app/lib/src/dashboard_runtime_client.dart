@@ -12,6 +12,8 @@ class DashboardRuntimeClient {
   final String? serverpodBaseUrl;
   final HttpClient _httpClient;
 
+  static const defaultDashboardBaseUrl = 'http://127.0.0.1:18090';
+
   Future<Map<String, dynamic>> readDashboardJson(String path) async {
     final request = await _httpClient.getUrl(_resolveDashboardUri(path));
     return _sendJson(request, path);
@@ -32,19 +34,30 @@ class DashboardRuntimeClient {
     String method,
     Map<String, dynamic> payload,
   ) async {
-    final path = '/$endpoint/$method';
-    final request = await _httpClient.postUrl(_resolveServerpodUri(path));
-    request.headers.contentType = ContentType.json;
-    request.write(jsonEncode(payload));
-    final decoded = await _sendJson(request, path);
-    final result = decoded['result'];
+    final result = await callServerpodEndpointValue(endpoint, method, payload);
     if (result is Map<String, dynamic>) {
       return result;
     }
     if (result is Map) {
       return Map<String, dynamic>.from(result);
     }
-    return decoded;
+    throw StateError('Unexpected Serverpod payload for $endpoint/$method');
+  }
+
+  Future<dynamic> callServerpodEndpointValue(
+    String endpoint,
+    String method,
+    Map<String, dynamic> payload,
+  ) async {
+    final path = '/$endpoint/$method';
+    final request = await _httpClient.postUrl(_resolveServerpodUri(path));
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode(payload));
+    final decoded = await _sendJson(request, path);
+    if (!decoded.containsKey('result')) {
+      return decoded;
+    }
+    return decoded['result'];
   }
 
   Future<Map<String, dynamic>> _sendJson(
@@ -88,7 +101,7 @@ class DashboardRuntimeClient {
     return _normalizeBase(
       dashboardBaseUrl,
       Platform.environment['FIXER_DASHBOARD_API_BASE_URL'],
-      'http://127.0.0.1:8090',
+      defaultDashboardBaseUrl,
     );
   }
 

@@ -1,0 +1,23 @@
+### A client-submitted revision of an order.
+class: Revision
+table: revision
+fields:
+  orderId: int
+  revisionNumber: int
+  revisionText: String
+  attachmentUrls: List<String>?
+  resultSummary: String?
+  status: String
+
+  # Legacy delivery metadata retained for the existing architect cockpit.
+  description: String
+  branchName: String?
+  previewUrl: String?
+  createdAt: DateTime
+  updatedAt: DateTime
+indexes:
+  revision_order_number_idx:
+    fields: orderId, revisionNumber
+    unique: true
+  revision_order_updated_idx:
+    fields: orderId, updatedAt

@@ -32,7 +32,7 @@ def _build_autonomous_netrunner_prompt(
     completion_lines = (
         [
             "When the work is finished, submit the mandatory doc proposal and completion report, then stop without waking the Fixer from this worker.",
-            "Do not call fixer_mcp.wake_fixer_autonomous for this explicit launch/wait worker; the waiting Fixer's `wait_for_netrunner_session` polling is the completion signal.",
+            "Do not call fixer_mcp.wake_fixer_autonomous for this wave-lifecycle worker; the wave-level wait/reviewer lifecycle is the completion signal.",
         ]
         if suppress_autonomous_wake
         else [

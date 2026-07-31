@@ -64,4 +64,4 @@ Operator update rules are the same as in `$run-manual-netrunner`.
 ## Constraints
 
 - Stay in the acceptance loop until explicit finalization is requested.
-- Current-thread Fixer-managed execution belongs to `$run-one-netrunner-task`.
+- Autonomous Fixer-managed execution belongs exclusively to `$run-netrunner-wave`; this skill remains only for an Architect-explicit separate-terminal acceptance session.

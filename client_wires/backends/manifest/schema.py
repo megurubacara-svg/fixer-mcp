@@ -38,6 +38,7 @@ MCP_CONFIG_FORMATS = (
     "factory-mcp.json",
     "serverUrl",
     "junie-location",
+    "kimi-code-mcp-json",
 )
 MCP_SCOPE_STRATEGIES = (
     "enumerate-disable",
@@ -46,10 +47,12 @@ MCP_SCOPE_STRATEGIES = (
     "mcp-config-file",
     "pre-clean",
     "none",
+    "project-config-file",
 )
 OPERATOR_QUESTION_MECHANISMS = (
     "AskUserQuestion",
     "droid.ask_user-jsonrpc",
+    "kimi-code-question",
     "none",
 )
 TOOL_REGISTRATION_MODES = ("native",)

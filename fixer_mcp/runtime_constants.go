@@ -35,11 +35,13 @@ const (
 )
 
 var supportedCliBackends = map[string]struct{}{
-	"antigravity": {},
-	"codex":       {},
-	"droid":       {},
-	"junie":       {},
-	"kimi-code":   {},
+	"antigravity":      {},
+	"claude":           {},
+	"codex":            {},
+	"droid":            {},
+	"junie":            {},
+	"kimi-code":        {},
+	"kimi-code-native": {},
 }
 
 var cliBackendAliases = map[string]string{
@@ -65,4 +67,9 @@ var supportedDroidCliModels = map[string]struct{}{
 	defaultDroidCliModel: {},
 	"kimi-k2.7-code":     {},
 	"glm-5.1":            {},
+}
+
+var supportedKimiCodeCliModels = map[string]struct{}{
+	defaultKimiCodeCliModel: {},
+	"kimi-k3":               {},
 }

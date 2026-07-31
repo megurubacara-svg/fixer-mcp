@@ -123,6 +123,9 @@ func captureParallelWaveWorkerDiff(projectCWD string, wave NetrunnerWaveSnapshot
 	if err != nil {
 		return "", nil, "", "", err
 	}
+	if err := validateWorktreeIsolation(projectCWD, worktreePath); err != nil {
+		return "", nil, "", "", fmt.Errorf("worktree isolation check failed: %w", err)
+	}
 	info, statErr := os.Stat(worktreePath)
 	if statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -184,6 +187,8 @@ func captureParallelWaveWorkerDiff(projectCWD string, wave NetrunnerWaveSnapshot
 	}
 	patch = combineParallelWavePatchPayloads(patchPayloads...)
 
+	changedPaths := mergeGitChangedPaths(splitGitPathLines(trackedNames), untrackedPaths)
+
 	patchPath, err := parallelWavePatchArtifactPath(projectCWD, wave.Id, worker.SessionId)
 	if err != nil {
 		return "", nil, "", "", err
@@ -192,6 +197,5 @@ func captureParallelWaveWorkerDiff(projectCWD string, wave NetrunnerWaveSnapshot
 		return "", nil, "", "", fmt.Errorf("failed to write patch artifact: %v", err)
 	}
 
-	changedPaths := mergeGitChangedPaths(splitGitPathLines(trackedNames), untrackedPaths)
 	return strings.TrimSpace(headSHA), changedPaths, patchPath, strings.TrimSpace(diffStat), nil
 }

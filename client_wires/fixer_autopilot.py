@@ -243,6 +243,10 @@ def run_autopilot(
     once: bool,
     dry_run: bool,
 ) -> int:
+    raise RuntimeError(
+        "retired serial dispatcher: create and launch Netrunners only through Fixer MCP waves"
+    )
+
     active_runs: dict[int, ActiveRun] = {}
     retry_entries: dict[int, RetryEntry] = {}
 

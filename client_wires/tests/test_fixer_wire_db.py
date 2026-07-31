@@ -379,6 +379,43 @@ class ProjectScopedMcpBindingTests(unittest.TestCase):
 
 
 class SessionCodexLinkPersistenceTests(unittest.TestCase):
+    def test_ensure_wire_schema_releases_its_write_transaction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "fixer.db"
+            conn = sqlite3.connect(db_path)
+            contender = sqlite3.connect(db_path, timeout=0)
+            try:
+                conn.execute(
+                    """
+                    CREATE TABLE session (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        project_id INTEGER NOT NULL,
+                        task_description TEXT NOT NULL,
+                        status TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.commit()
+
+                fixer_wire._ensure_wire_schema(conn)
+
+                self.assertFalse(conn.in_transaction)
+                contender.execute("BEGIN IMMEDIATE")
+                contender.rollback()
+            finally:
+                contender.close()
+                conn.close()
+
+    def test_ensure_wire_schema_configures_busy_timeout(self) -> None:
+        conn = sqlite3.connect(":memory:", timeout=0)
+        try:
+            fixer_wire._ensure_wire_schema(conn)
+            timeout_ms = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        finally:
+            conn.close()
+
+        self.assertEqual(timeout_ms, fixer_wire_db.WIRE_DB_BUSY_TIMEOUT_MS)
+
     def test_ensure_wire_schema_migrates_legacy_codex_links_into_external_link_table(self) -> None:
         conn = sqlite3.connect(":memory:")
         try:

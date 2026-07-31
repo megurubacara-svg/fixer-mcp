@@ -2,7 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -68,17 +71,83 @@ func normalizeCliReasoning(backend string, raw string) string {
 }
 
 func validateCliModelForBackend(backend string, model string) error {
-	if backend != "droid" && backend != "junie" {
-		return nil
-	}
 	trimmedModel := strings.TrimSpace(model)
 	if trimmedModel == "" {
 		return nil
 	}
-	if _, ok := supportedDroidCliModels[trimmedModel]; ok {
+	if backend == "droid" || backend == "junie" {
+		if _, ok := supportedDroidCliModels[trimmedModel]; ok {
+			return nil
+		}
+		return fmt.Errorf("unsupported %s model %q; supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1", backend, trimmedModel)
+	}
+	if backend == "kimi-code" {
+		if _, ok := supportedKimiCodeCliModels[trimmedModel]; ok {
+			return nil
+		}
+		return fmt.Errorf("unsupported %s model %q; supported models: kimi-k2.7-code, kimi-k3", backend, trimmedModel)
+	}
+	return nil
+}
+
+// backendCatalogAvailability reads the "available" flag per backend directly
+// from client_wires/backends/data/backend-catalog.json — the same file the
+// Python alias layer reads. There is deliberately no compiled-in cache: the
+// Architect can flip a backend's subscription/auth status by editing that
+// JSON file (or calling client_wires.backends.set_backend_availability) and
+// have it take effect on the very next launch, with no fixer_mcp rebuild.
+func backendCatalogAvailability(projectCWD string) map[string]bool {
+	path := filepath.Join(projectCWD, "client_wires", "backends", "data", "backend-catalog.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return nil
 	}
-	return fmt.Errorf("unsupported %s model %q; supported models: kimi-k2.6, kimi-k2.7-code, glm-5.1", backend, trimmedModel)
+	var payload struct {
+		Backends map[string]struct {
+			Available *bool `json:"available"`
+		} `json:"backends"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil
+	}
+	availability := make(map[string]bool, len(payload.Backends))
+	for name, entry := range payload.Backends {
+		if entry.Available == nil {
+			availability[name] = true
+			continue
+		}
+		availability[name] = *entry.Available
+	}
+	return availability
+}
+
+// validateCliBackendAvailability rejects launches against a backend the
+// Architect has flagged as currently unavailable (quota exhausted, auth
+// broken, no subscription, etc.), so a bad automated dispatch fails fast
+// instead of burning a wave worktree/process on a guaranteed failure. It
+// fails open (returns nil) whenever availability data can't be determined,
+// so a missing/unreadable/malformed catalog never blocks a launch.
+func validateCliBackendAvailability(backend string) error {
+	projectCWD, err := projectCWDFromID(authorizedProjectId)
+	if err != nil {
+		return nil
+	}
+	normalizedProjectCWD, err := normalizeProjectCWD(projectCWD)
+	if err != nil {
+		return nil
+	}
+	availability := backendCatalogAvailability(normalizedProjectCWD)
+	if availability == nil {
+		return nil
+	}
+	available, known := availability[backend]
+	if !known || available {
+		return nil
+	}
+	return fmt.Errorf(
+		"backend %q is currently marked unavailable in client_wires/backends/data/backend-catalog.json (no working subscription/auth) — pick a different backend, or set its \"available\" flag back to true there once resolved",
+		backend,
+	)
 }
 
 func validateCliReasoningForBackend(backend string, reasoning string) error {

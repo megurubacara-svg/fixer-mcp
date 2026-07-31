@@ -6,7 +6,12 @@ import re
 import textwrap
 from typing import Any, Callable, Sequence
 
-from client_wires.backends import DEFAULT_BACKEND, available_backend_descriptors, normalize_backend_name
+from client_wires.backends import (
+    DEFAULT_BACKEND,
+    available_backend_descriptors,
+    normalize_backend_name,
+    subscribed_backend_descriptors,
+)
 from client_wires import fixer_wire_db
 from client_wires import fixer_wire_mcp
 from client_wires import fixer_wire_prompts
@@ -429,7 +434,7 @@ def _select_backend_interactive(
     Option: Any,
     single_select_items: Any,
 ) -> str:
-    descriptors = available_backend_descriptors()
+    descriptors = subscribed_backend_descriptors()
     options = [Option("CLI backends", is_header=True)]
     for descriptor in descriptors:
         label = descriptor.label

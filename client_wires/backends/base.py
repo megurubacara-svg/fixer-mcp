@@ -16,7 +16,6 @@ FIXER_ROLE_SKILL_NAMES = (
     "run-manual-acceptance-netrunner",
     "run-manual-netrunner",
     "run-netrunner-wave",
-    "run-one-netrunner-task",
     "review-netrunner-session",
     "complete-netrunner-session",
     "inspect-netrunner-transcript",
@@ -27,6 +26,7 @@ FIXER_ROLE_SKILL_NAMES = (
     "figma-frontend-works",
     "shadcn-ui-flutter",
     "design-system-works",
+    "share-project",
 )
 FIXER_RETIRED_SKILL_NAMES = (
     "init-netrunner",
@@ -39,6 +39,7 @@ FIXER_RETIRED_SKILL_NAMES = (
     "fixer-handoff",
     "autonomous-resolution",
     "autonomous-resolution-one-task",
+    "run-one-netrunner-task",
     "bootstrap-netrunners",
     "check-netrunner-statuses",
     "check-netrunner-statuses-autonomous",
@@ -57,6 +58,7 @@ class BackendDescriptor:
     reasoning_options: tuple[str, ...]
     fresh_launch_supported: bool = True
     resume_supported: bool = True
+    available: bool = True
 
 
 def normalize_backend_name(raw: str | None) -> str:

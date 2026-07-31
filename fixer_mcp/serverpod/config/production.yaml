@@ -1,0 +1,37 @@
+# DATABASE_URL is supplied by deploy/serverpod-entrypoint.sh. The entrypoint
+# translates it into SERVERPOD_DATABASE_* variables because Serverpod's
+# production configuration consumes those variables.
+apiServer:
+  port: 8080
+  publicHost: localhost
+  publicPort: 443
+  publicScheme: https
+
+insightsServer:
+  port: 8081
+  publicHost: localhost
+  publicPort: 443
+  publicScheme: https
+
+webServer:
+  port: 8082
+  publicHost: localhost
+  publicPort: 443
+  publicScheme: https
+
+database:
+  host: localhost
+  port: 5432
+  name: fixer_dashboard
+  user: postgres
+  requireSsl: false
+
+redis:
+  enabled: false
+
+sessionLogs:
+  persistentEnabled: true
+  consoleEnabled: true
+  consoleLogFormat: json
+
+futureCallExecutionEnabled: true

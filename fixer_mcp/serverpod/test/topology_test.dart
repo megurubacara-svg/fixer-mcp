@@ -27,6 +27,8 @@ void main() {
     expect(endpoint, contains("HttpHeaders.connectionHeader, 'close'"));
     expect(endpoint, contains('request.persistentConnection = false'));
     expect(endpoint, contains('retryConnectionDrop: false'));
+    expect(endpoint, contains("'http://127.0.0.1:18090'"));
+    expect(endpoint, isNot(contains("'http://127.0.0.1:8090'")));
     expect(
       endpoint,
       contains('connection closed before full header was received'),
@@ -35,6 +37,10 @@ void main() {
     expect(generated, contains("'threadMessages'"));
     expect(generated, contains("'sendThreadMessage'"));
     expect(generated, contains("'threadTurnStatus'"));
+    expect(generated, isNot(contains("'appServer'")));
+    expect(generated, isNot(contains("'createThread'")));
+    expect(generated, isNot(contains("'watchThreadEvents'")));
+    expect(Directory('lib/src/app_server').existsSync(), isFalse);
 
     expect(development, contains('port: 28080'));
     expect(development, contains('name: fixer_dashboard'));

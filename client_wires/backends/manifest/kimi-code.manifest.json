@@ -4,11 +4,13 @@
   "description": "Moonshot Kimi Code CLI provider for the Fixer MCP provider-adapter abstraction. Requires explicit --mcp-config-file to surface project-local MCP servers in headless mode.",
   "models": {
     "options": [
-      "kimi-k2.7-code"
+      "kimi-k2.7-code",
+      "kimi-k3"
     ],
     "default": "kimi-k2.7-code",
     "internal_id_map": {
-      "kimi-k2.7-code": "kimi-code/kimi-for-coding"
+      "kimi-k2.7-code": "kimi-code/kimi-for-coding",
+      "kimi-k3": "kimi-code/k3"
     },
     "byok": true,
     "auth": "byok"

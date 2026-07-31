@@ -3,23 +3,28 @@ package main
 import "github.com/modelcontextprotocol/go-sdk/mcp"
 
 const (
-	launchAndWaitNetrunnerToolName = "launch_and_wait_netrunner"
-	launchNetrunnerWaveToolName    = "launch_netrunner_wave"
-	waitForNetrunnerWaveToolName   = "wait_for_netrunner_wave"
+	launchNetrunnerWaveToolName   = "launch_netrunner_wave"
+	waitForNetrunnerWaveToolName  = "wait_for_netrunner_wave"
+	launchNetrunnerWavesToolName  = "launch_netrunner_waves"
+	waitForNetrunnerWavesToolName = "wait_for_netrunner_waves"
 )
 
 var bootstrapToolNames = []string{"assume_role"}
 
 var netrunnerGateToolNames = []string{
-	launchAndWaitNetrunnerToolName,
 	launchNetrunnerWaveToolName,
 	waitForNetrunnerWaveToolName,
+	launchNetrunnerWavesToolName,
+	waitForNetrunnerWavesToolName,
 }
 
 var overseerToolNames = []string{
 	"get_projects",
 	"register_project",
 	"get_all_sessions",
+	"add_backlog_item",
+	"get_backlog_items",
+	"update_backlog_item",
 	"set_session_status",
 	"set_autonomous_run_status",
 	"get_autonomous_run_status",
@@ -36,15 +41,22 @@ var overseerToolNames = []string{
 	"launch_and_wait_fixers",
 	"set_project_handoff",
 	"get_project_handoff",
+	"export_project_context_package",
+	"import_project_context_package",
 	"get_project_balance",
 	"credit_project_balance",
 	"set_fixer_spend_authority",
 	"get_balance_ledger",
 	"get_session",
 	"get_netrunner_transcript_path",
+	"submit_fixer_mcp_feedback",
 }
 
 var fixerToolNames = []string{
+	"get_pending_tasks",
+	"add_backlog_item",
+	"get_backlog_items",
+	"update_backlog_item",
 	"list_mcp_servers",
 	"set_project_mcp_servers",
 	"get_project_mcp_servers",
@@ -78,23 +90,34 @@ var fixerToolNames = []string{
 	"get_overseer_fixer_run_state",
 	"set_project_handoff",
 	"get_project_handoff",
+	"export_project_context_package",
+	"import_project_context_package",
 	"get_project_balance",
 	"record_fixer_spend",
 	"get_balance_ledger",
 	"get_session",
 	"get_netrunner_transcript_path",
-	"wait_for_netrunner_session",
-	launchAndWaitNetrunnerToolName,
+	"create_planned_netrunner_wave",
+	"get_planned_netrunner_wave",
+	"initialize_planned_netrunner_wave",
 	"create_netrunner_wave",
 	"get_netrunner_wave",
 	launchNetrunnerWaveToolName,
 	waitForNetrunnerWaveToolName,
+	launchNetrunnerWavesToolName,
+	waitForNetrunnerWavesToolName,
+	"transition_netrunner_wave_phase",
+	"authorize_netrunner_wave_repair",
+	"set_netrunner_wave_control_state",
+	"get_mcp_binary_restart_state",
+	"set_mcp_binary_restart_state",
 	"cleanup_netrunner_wave",
 	"list_active_worker_processes",
 	"stop_active_worker_processes",
 	"launch_image_generation_job",
 	"wait_for_image_generation_job",
 	"copy_image_generation_job_output",
+	"submit_fixer_mcp_feedback",
 }
 
 var netrunnerToolNames = []string{
@@ -168,10 +191,6 @@ func registerBootstrapTools(server *mcp.Server) {
 	addMcpTool(server, "assume_role", "Authenticate your MCP stdio session. Must be called first. Role can be 'fixer', 'netrunner', or 'overseer'. Provide cwd for fixer/netrunner and token for fixer/overseer.", AssumeRole)
 }
 
-func registerLaunchAndWaitNetrunnerTool(server *mcp.Server) {
-	addMcpTool(server, launchAndWaitNetrunnerToolName, "Launch exactly one MCP-sensitive Netrunner through the serial explicit wire path and wait for its review-ready or terminal result in the same Fixer thread. Requires fixer role.", LaunchAndWaitNetrunner)
-}
-
 func registerLaunchNetrunnerWaveTool(server *mcp.Server) {
 	addMcpTool(server, launchNetrunnerWaveToolName, "Launch all workers for one created parallel Netrunner wave using isolated Git worktrees. Requires fixer role.", LaunchNetrunnerWave)
 }
@@ -180,16 +199,28 @@ func registerWaitForNetrunnerWaveTool(server *mcp.Server) {
 	addMcpTool(server, waitForNetrunnerWaveToolName, "Wait for a launched parallel Netrunner wave to yield a review-ready or terminal worker and capture worktree diff artifacts. Requires fixer role.", WaitForNetrunnerWave)
 }
 
+func registerLaunchNetrunnerWavesTool(server *mcp.Server) {
+	addMcpTool(server, launchNetrunnerWavesToolName, "Launch multiple existing waves in the current Fixer project with prevalidated IDs and per-wave failure isolation. Returns compact operator summaries by default; set detail_level=full for the legacy full per-wave outputs.", LaunchNetrunnerWaves)
+}
+
+func registerWaitForNetrunnerWavesTool(server *mcp.Server) {
+	addMcpTool(server, waitForNetrunnerWavesToolName, "Wait on multiple existing waves in the current Fixer project and return isolated compact lifecycle/terminality summaries. Set detail_level=full for the legacy full per-wave outputs.", WaitForNetrunnerWaves)
+}
+
 func registerNetrunnerGateTools(server *mcp.Server) {
-	registerLaunchAndWaitNetrunnerTool(server)
 	registerLaunchNetrunnerWaveTool(server)
 	registerWaitForNetrunnerWaveTool(server)
+	registerLaunchNetrunnerWavesTool(server)
+	registerWaitForNetrunnerWavesTool(server)
 }
 
 func registerOverseerTools(server *mcp.Server) {
 	addMcpTool(server, "get_projects", "List all projects. Requires overseer role.", GetProjects)
 	addMcpTool(server, "register_project", "Register a project cwd globally. Requires overseer role.", RegisterProject)
 	addMcpTool(server, "get_all_sessions", "List all active tasks/sessions across all projects. Requires overseer role.", GetAllSessions)
+	addMcpTool(server, "add_backlog_item", "Add a project-scoped backlog item. Fixer uses the bound project; overseer must provide project_id.", AddBacklogItem)
+	addMcpTool(server, "get_backlog_items", "List project-scoped backlog items. Fixer uses the bound project; overseer must provide project_id.", GetBacklogItems)
+	addMcpTool(server, "update_backlog_item", "Update a project-scoped backlog item. Fixer uses the bound project; overseer must provide project_id.", UpdateBacklogItem)
 	addMcpTool(server, "set_session_status", "Set session lifecycle status. Fixer can only modify sessions in bound project; overseer can modify any session.", SetSessionStatus)
 	addMcpTool(server, "set_autonomous_run_status", "Set the current autonomous-run status for a project. Fixer can update the bound project; overseer can update any project.", SetAutonomousRunStatus)
 	addMcpTool(server, "get_autonomous_run_status", "Read the current autonomous-run status for a project. Fixer/netrunner read their bound project; overseer can read any project.", GetAutonomousRunStatus)
@@ -206,15 +237,22 @@ func registerOverseerTools(server *mcp.Server) {
 	addMcpTool(server, "launch_and_wait_fixers", "Overseer-only: launch/resume latest Fixer sessions for target projects and wait for the first new Fixer chat response.", LaunchAndWaitFixers)
 	addMcpTool(server, "set_project_handoff", "Write or replace the current project handoff. Fixer writes for the bound project; overseer may target any project via project_id.", SetProjectHandoff)
 	addMcpTool(server, "get_project_handoff", "Read the current project handoff. Fixer reads the bound project; overseer may target any project via project_id.", GetProjectHandoff)
+	addMcpTool(server, "export_project_context_package", "Export the project context (overview, handoff, doc tree, backlog, lightweight session index) into a portable JSON package file. Fixer exports the bound project; overseer must pass project_id.", ExportProjectContextPackage)
+	addMcpTool(server, "import_project_context_package", "Import a portable project-context JSON package into the project: overview, handoff, doc tree (parent links via slug/path), backlog (deduped by title). Refuses non-empty projects unless force=true. Fixer imports into the bound project; overseer must pass project_id.", ImportProjectContextPackage)
 	addMcpTool(server, "get_project_balance", "Read a project's abstract balance and Fixer spend authority. Overseer must pass project_id.", GetProjectBalance)
 	addMcpTool(server, "credit_project_balance", "Credit a project's abstract balance and write an audit ledger entry. Requires overseer role.", CreditProjectBalance)
 	addMcpTool(server, "set_fixer_spend_authority", "Set a project's Fixer spend authority and write an audit ledger entry. Requires overseer role.", SetFixerSpendAuthority)
 	addMcpTool(server, "get_balance_ledger", "Read recent project balance ledger rows. Overseer must pass project_id.", GetBalanceLedger)
 	addMcpTool(server, "get_session", "Read one session by ID. Fixer/netrunner are project-scoped, overseer can read any session.", GetSession)
 	addMcpTool(server, "get_netrunner_transcript_path", "Resolve local transcript path metadata for a project-scoped Netrunner session without reading transcript content. Fixer uses bound project; overseer must pass project_id.", GetNetrunnerTranscriptPath)
+	addMcpTool(server, "submit_fixer_mcp_feedback", "Submit cross-project feedback to Fixer MCP. Fixer uses bound project; overseer must pass project_id.", SubmitFixerMcpFeedback)
 }
 
 func registerFixerTools(server *mcp.Server) {
+	addMcpTool(server, "get_pending_tasks", "For fixers and netrunners: Get a list of all pending tasks for the current project.", GetPendingTasks)
+	addMcpTool(server, "add_backlog_item", "Add a backlog item to the current project. Requires fixer role.", AddBacklogItem)
+	addMcpTool(server, "get_backlog_items", "List backlog items for the current project. Requires fixer role.", GetBacklogItems)
+	addMcpTool(server, "update_backlog_item", "Update a backlog item in the current project. Requires fixer role.", UpdateBacklogItem)
 	addMcpTool(server, "list_mcp_servers", "List MCP servers from Fixer registry. Requires authenticated role. Returns curated defaults unless include_all=true; archived servers require include_archived=true.", ListMcpServers)
 	addMcpTool(server, "set_project_mcp_servers", "Set project-scoped MCP allowlist for the current fixer project.", SetProjectMcpServers)
 	addMcpTool(server, "get_project_mcp_servers", "Get project-scoped MCP allowlist for current project.", GetProjectMcpServers)
@@ -248,17 +286,28 @@ func registerFixerTools(server *mcp.Server) {
 	addMcpTool(server, "get_overseer_fixer_run_state", "Read durable active/inactive state for an Overseer-directed Fixer run. Overseer must pass project_id; fixer uses the bound project.", GetOverseerFixerRunState)
 	addMcpTool(server, "set_project_handoff", "Write or replace the current project handoff. Fixer writes for the bound project; overseer may target any project via project_id.", SetProjectHandoff)
 	addMcpTool(server, "get_project_handoff", "Read the current project handoff. Fixer reads the bound project; overseer may target any project via project_id.", GetProjectHandoff)
+	addMcpTool(server, "export_project_context_package", "Export the project context (overview, handoff, doc tree, backlog, lightweight session index) into a portable JSON package file. Fixer exports the bound project; overseer must pass project_id.", ExportProjectContextPackage)
+	addMcpTool(server, "import_project_context_package", "Import a portable project-context JSON package into the project: overview, handoff, doc tree (parent links via slug/path), backlog (deduped by title). Refuses non-empty projects unless force=true. Fixer imports into the bound project; overseer must pass project_id.", ImportProjectContextPackage)
 	addMcpTool(server, "get_project_balance", "Read the current project's abstract balance and Fixer spend authority. Requires fixer role.", GetProjectBalance)
 	addMcpTool(server, "record_fixer_spend", "Record a Fixer spend under granted authority, decrementing balance and allowance atomically. Requires fixer role.", RecordFixerSpend)
 	addMcpTool(server, "get_balance_ledger", "Read recent balance ledger rows for the current project. Requires fixer role.", GetBalanceLedger)
 	addMcpTool(server, "get_session", "Read one session by ID. Fixer/netrunner are project-scoped, overseer can read any session.", GetSession)
 	addMcpTool(server, "get_netrunner_transcript_path", "Resolve local transcript path metadata for a project-scoped Netrunner session without reading transcript content. Fixer uses bound project; overseer must pass project_id.", GetNetrunnerTranscriptPath)
-	addMcpTool(server, "wait_for_netrunner_session", "Wait for one launched Netrunner session to reach a review-ready or terminal lifecycle state and return structured status/report/proposal metadata. Requires fixer role.", WaitForNetrunnerSession)
-	registerLaunchAndWaitNetrunnerTool(server)
+	addMcpTool(server, "submit_fixer_mcp_feedback", "Submit cross-project feedback to Fixer MCP. Fixer uses bound project; overseer must pass project_id.", SubmitFixerMcpFeedback)
+	addMcpTool(server, "create_planned_netrunner_wave", "Persist future project-scoped wave work, including per-task backend/model/reasoning and project-allowed MCP assignments, without creating sessions, resolving Git, or reserving write scopes. Requires fixer role.", CreatePlannedNetrunnerWave)
+	addMcpTool(server, "get_planned_netrunner_wave", "Read one project-scoped planned-wave definition and its future tasks. Requires fixer role.", GetPlannedNetrunnerWave)
+	addMcpTool(server, "initialize_planned_netrunner_wave", "Materialize one planned wave into configured pending sessions with their MCP assignments and delegate to governed create_netrunner_wave admission. Requires fixer role.", InitializePlannedNetrunnerWave)
 	addMcpTool(server, "create_netrunner_wave", "Create a durable parallel Netrunner wave from pending sessions after strict Git and write-scope admission. Does not launch workers. Requires fixer role.", CreateNetrunnerWave)
 	addMcpTool(server, "get_netrunner_wave", "Read one durable parallel Netrunner wave and its worker rows for the current project. Requires fixer role.", GetNetrunnerWave)
 	registerLaunchNetrunnerWaveTool(server)
 	registerWaitForNetrunnerWaveTool(server)
+	registerLaunchNetrunnerWavesTool(server)
+	registerWaitForNetrunnerWavesTool(server)
+	addMcpTool(server, "transition_netrunner_wave_phase", "Apply an explicit reviewed implementation-to-acceptance or acceptance-to-completed wave phase transition.", TransitionNetrunnerWavePhase)
+	addMcpTool(server, "authorize_netrunner_wave_repair", "Authorize exactly one durable governed implementation repair for the worker selected by wave failure policy.", AuthorizeNetrunnerWaveRepair)
+	addMcpTool(server, "set_netrunner_wave_control_state", "Pause one wave for Architect review or resume it after explicit Architect approval without freezing unrelated waves.", SetNetrunnerWaveControlState)
+	addMcpTool(server, "get_mcp_binary_restart_state", "Read the project-scoped MCP binary restart/build epoch marker.", GetMCPBinaryRestartState)
+	addMcpTool(server, "set_mcp_binary_restart_state", "Mark a project MCP binary build epoch as restart-required or confirm that the required epoch is running.", SetMCPBinaryRestartState)
 	addMcpTool(server, "cleanup_netrunner_wave", "Clean up terminal parallel Netrunner wave worktrees with explicit removal/prune flags and safety checks. Requires fixer role.", CleanupNetrunnerWave)
 	addMcpTool(server, "list_active_worker_processes", "List currently active Fixer-managed worker processes for the current project, with session mapping and liveness checks. Requires fixer role.", ListActiveWorkerProcesses)
 	addMcpTool(server, "stop_active_worker_processes", "Stop active Fixer-managed worker processes for the current project and optionally freeze orchestration follow-up. Requires fixer role.", StopActiveWorkerProcesses)
@@ -268,7 +317,7 @@ func registerFixerTools(server *mcp.Server) {
 }
 
 func registerNetrunnerTools(server *mcp.Server) {
-	addMcpTool(server, "get_pending_tasks", "For netrunners: Get a list of all pending tasks for the current project.", GetPendingTasks)
+	addMcpTool(server, "get_pending_tasks", "For fixers and netrunners: Get a list of all pending tasks for the current project.", GetPendingTasks)
 	addMcpTool(server, "checkout_task", "For netrunners: Checkout a specific task by its session ID.", CheckoutTask)
 	addMcpTool(server, "list_mcp_servers", "List MCP servers from Fixer registry. Requires authenticated role. Returns curated defaults unless include_all=true; archived servers require include_archived=true.", ListMcpServers)
 	addMcpTool(server, "get_project_mcp_servers", "Get project-scoped MCP allowlist for current project.", GetProjectMcpServers)

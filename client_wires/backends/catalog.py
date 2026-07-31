@@ -31,3 +31,31 @@ def load_backend_entry(name: str) -> dict[str, object]:
     except KeyError as exc:
         supported = ", ".join(sorted(catalog))
         raise RuntimeError(f"Backend catalog missing entry for {name!r}. Available: {supported}") from exc
+
+
+def is_backend_available(name: str) -> bool:
+    """Whether the Architect currently has a working subscription/auth for this backend.
+
+    Defaults to True for entries with no explicit "available" flag, so older
+    catalog entries stay usable until someone opts them out.
+    """
+    return bool(load_backend_entry(name).get("available", True))
+
+
+def set_backend_availability(name: str, available: bool) -> None:
+    """Flip a backend's availability flag and persist it to backend-catalog.json.
+
+    This is the quick knob for "the Architect's subscription for X just
+    changed" — no code change or rebuild required, only the alias/Python
+    layer's in-process cache is cleared. The Go core (fixer_mcp) re-reads the
+    same file on every launch, so it also picks this up immediately.
+    """
+    path = _catalog_path()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    backends = payload.get("backends", {})
+    if name not in backends:
+        supported = ", ".join(sorted(backends))
+        raise RuntimeError(f"Backend catalog missing entry for {name!r}. Available: {supported}")
+    backends[name]["available"] = bool(available)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    load_backend_catalog.cache_clear()

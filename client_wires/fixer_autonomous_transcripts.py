@@ -1,12 +1,226 @@
-"""External Codex/Droid session discovery for autonomous launches."""
+"""External session discovery and provider-neutral Netrunner transcripts."""
 
 from __future__ import annotations
 
 import json
 import re
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
+
+
+@dataclass(frozen=True)
+class ProviderThreadCapability:
+    """Dashboard-facing capabilities for one provider-backed thread."""
+
+    backend: str
+    transcript_availability: str
+    continuation_supported: bool
+    continuation_mode: str
+    unsupported_reason: str = ""
+
+
+@dataclass(frozen=True)
+class ProviderThreadMessage:
+    """Small, provider-neutral message representation used by the dashboard."""
+
+    id: str
+    role: str
+    text: str
+    created_at: str = ""
+    source: str = "provider_transcript"
+
+
+_PROVIDER_THREAD_CAPABILITIES = {
+    "codex": ProviderThreadCapability("codex", "jsonl", True, "headless_resume"),
+    "droid": ProviderThreadCapability("droid", "jsonl", True, "headless_resume"),
+    "claude": ProviderThreadCapability(
+        "claude",
+        "metadata_only",
+        False,
+        "unsupported",
+        "Claude resume needs a scoped MCP runtime config that the dashboard does not yet materialize.",
+    ),
+    "kimi-code": ProviderThreadCapability(
+        "kimi-code",
+        "metadata_only",
+        False,
+        "unsupported",
+        "Kimi resume needs its project-scoped MCP config file; direct dashboard continuation is not wired yet.",
+    ),
+    "antigravity": ProviderThreadCapability(
+        "antigravity",
+        "metadata_only",
+        False,
+        "unsupported",
+        "Antigravity exposes conversation metadata, but the dashboard cannot read or continue the conversation safely yet.",
+    ),
+    "junie": ProviderThreadCapability(
+        "junie",
+        "metadata_only",
+        False,
+        "unsupported",
+        "Junie session metadata can be retained, but dashboard continuation is not implemented yet.",
+    ),
+}
+
+
+def _normalize_thread_backend(backend: str) -> str:
+    normalized = backend.strip().lower().replace("_", "-")
+    aliases = {
+        "agy": "antigravity",
+        "claude-code": "claude",
+        "kimi": "kimi-code",
+        "kimi-cli": "kimi-code",
+        "factory": "droid",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _provider_thread_capability(backend: str) -> ProviderThreadCapability:
+    """Return an explicit capability result; never silently default to Codex."""
+
+    normalized = _normalize_thread_backend(backend)
+    if not normalized:
+        return ProviderThreadCapability(
+            "",
+            "unavailable",
+            False,
+            "awaiting_backend",
+            "This manual Netrunner has not selected or launched a backend yet.",
+        )
+    capability = _PROVIDER_THREAD_CAPABILITIES.get(normalized)
+    if capability is not None:
+        return capability
+    return ProviderThreadCapability(
+        normalized,
+        "metadata_only",
+        False,
+        "unsupported",
+        f"Provider {normalized!r} has no dashboard transcript or continuation adapter.",
+    )
+
+
+def _provider_thread_capability_payload(backend: str) -> dict[str, object]:
+    return asdict(_provider_thread_capability(backend))
+
+
+def _message_text(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        parts = [_message_text(item) for item in value]
+        return "\n".join(part for part in parts if part).strip()
+    if not isinstance(value, dict):
+        return ""
+    for key in ("text", "message", "content", "output_text", "input_text", "value"):
+        if key in value:
+            text = _message_text(value[key])
+            if text:
+                return text
+    return ""
+
+
+def _normalize_message_role(value: object, record_type: str) -> str:
+    role = str(value or "").strip().lower()
+    if role in {"assistant", "agent", "model"}:
+        return "assistant"
+    if role in {"user", "human"}:
+        return "user"
+    lowered_type = record_type.lower()
+    if "assistant" in lowered_type or "agent" in lowered_type:
+        return "assistant"
+    if "user" in lowered_type or "human" in lowered_type:
+        return "user"
+    return ""
+
+
+def _provider_message_from_payload(
+    payload: object,
+    *,
+    line_number: int,
+    backend: str,
+) -> ProviderThreadMessage | None:
+    if not isinstance(payload, dict):
+        return None
+    nested = payload.get("payload")
+    record = nested if isinstance(nested, dict) else payload
+    record_type = str(record.get("type") or payload.get("type") or "").strip()
+    role = _normalize_message_role(record.get("role"), record_type)
+    if not role:
+        return None
+    text = (
+        _message_text(record.get("content"))
+        or _message_text(record.get("message"))
+        or _message_text(record.get("text"))
+    )
+    if not text:
+        return None
+    created_at = str(payload.get("timestamp") or record.get("timestamp") or "").strip()
+    message_id = str(
+        record.get("id") or payload.get("id") or f"{backend}-{line_number}"
+    ).strip()
+    return ProviderThreadMessage(
+        id=message_id,
+        role=role,
+        text=text,
+        created_at=created_at,
+    )
+
+
+def _load_provider_thread_messages(
+    backend: str,
+    transcript_path: Path,
+    *,
+    limit: int = 400,
+) -> list[ProviderThreadMessage]:
+    """Read supported JSONL transcripts without leaking raw tool/event records."""
+
+    capability = _provider_thread_capability(backend)
+    if capability.transcript_availability != "jsonl" or limit <= 0:
+        return []
+    messages: list[ProviderThreadMessage] = []
+    try:
+        with transcript_path.open("r", encoding="utf-8") as fh:
+            for line_number, raw_line in enumerate(fh, start=1):
+                try:
+                    payload = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+                message = _provider_message_from_payload(
+                    payload,
+                    line_number=line_number,
+                    backend=capability.backend,
+                )
+                if message is None:
+                    continue
+                if (
+                    messages
+                    and messages[-1].role == message.role
+                    and messages[-1].text == message.text
+                ):
+                    continue
+                messages.append(message)
+    except OSError:
+        return []
+    return messages[-limit:]
+
+
+def _provider_thread_message_payloads(
+    backend: str,
+    transcript_path: Path,
+    *,
+    limit: int = 400,
+) -> list[dict[str, str]]:
+    return [
+        asdict(message)
+        for message in _load_provider_thread_messages(
+            backend,
+            transcript_path,
+            limit=limit,
+        )
+    ]
 
 
 def _extract_droid_session_id_from_payload(payload: object) -> str | None:

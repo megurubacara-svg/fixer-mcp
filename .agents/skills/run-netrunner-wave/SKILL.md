@@ -5,19 +5,17 @@ description: "Use this skill when a project Fixer should dispatch multiple bound
 
 # Run Netrunner Wave
 
-Use this skill only when a Fixer needs a parallel wave of independent Netrunner tasks.
-
-Parallelism is for isolated work, not for making one tangled task faster. If scopes overlap, use `$run-one-netrunner-task`.
+Use this skill for every Fixer-managed Netrunner launch. A wave may contain one worker, multiple independent workers, or dependency-gated workers whose scopes overlap only through an explicit DAG.
 
 ## Preconditions
 
 - You are authenticated as project `fixer`.
 - The current MCP tool list exposes `create_netrunner_wave`, `get_netrunner_wave`, `launch_netrunner_wave`, `wait_for_netrunner_wave`, and `cleanup_netrunner_wave`; restart the Fixer/MCP session if they are missing.
-- The registered project root is a clean Git repository root. This is a hard precondition for wave creation.
+- The registered project root must be a Git repository. If it is not a Git repository, initialize it first (`git init && git add . && git commit -m "Initial commit"`). Absence of a Git repository is NEVER a reason to refuse a wave.
 - There is no active orchestration freeze or stale epoch blocker.
-- The wave has at least two pending sessions.
+- The wave has at least one pending session.
 - Each session has a narrow, disjoint `declared_write_scope`.
-- No session owns broad scope such as `.`, whole repo, shared app root, shared migrations, or the same test/dev-server state unless the Fixer has a concrete isolation reason.
+- No session owns broad scope such as `.`, whole repo, shared app root, shared migrations, or the same test/dev-server state unless the Fixer has an explicit dependency DAG and a concrete isolation reason.
 
 ## Dirty Base Dispatch
 
@@ -39,24 +37,23 @@ the repo state and continue:
    named stash or the project's established preservation path. Record what was
    preserved in the handoff/report. Do not revert unrelated user work.
 5. If a pending session depends on local secrets or local-only files that will
-   not exist in isolated wave worktrees, remove that session from the wave plan
-   and run it serially later.
+   not exist in isolated wave worktrees, do not launch it autonomously. Report
+   the constraint or ask the Architect for an explicitly manual operator run.
 6. If a session is `in_progress` but has no active worker process, recover it:
    set it back to `pending` when safe, or fork/create a replacement session.
    Do not let a zombie session block the whole wave.
 7. Rebuild the wave candidate list from sessions that are still independent,
    pending, and wave-safe.
-8. If at least two wave-safe sessions remain, create and launch the wave.
-9. If exactly one wave-safe session remains, run it with `$run-one-netrunner-task`.
-10. Stop only when no safe serial or wave dispatch remains, and report the exact
+8. If any wave-safe sessions remain, create and launch the wave, including a one-worker wave when only one remains.
+9. Stop only when no safe wave dispatch remains, and report the exact
     remaining blocker.
 
-Fallback to serial flow for unsafe slices; do not collapse the whole batch just
-because one slice needs local secrets, local files, or serial handling.
+Never fall back to serial autonomous execution. Do not collapse the whole batch
+because one slice needs local secrets, local files, or manual handling.
 
 ## When Not To Use
 
-Use one serial Netrunner for a specific slice when:
+Do not autonomously launch the slice when:
 
 - the implementation needs cross-file architectural decisions in one shared area
 - workers may edit the same files or tests
@@ -65,6 +62,8 @@ Use one serial Netrunner for a specific slice when:
 - that slice depends on local secrets or local-only files that should not be
   copied into isolated wave worktrees
 - the task needs auto-merge, patch application, or acceptance automation
+
+Re-slice it into a dependency DAG or request an explicitly manual operator session. Do not call a provider CLI or the retired serial launcher.
 
 ## Flow
 
@@ -77,17 +76,25 @@ Use one serial Netrunner for a specific slice when:
 6. Create the wave with `create_netrunner_wave(session_ids=[...])`.
 7. If wave creation reports dirty base, follow **Dirty Base Dispatch** and retry
    with the safe candidate subset.
-8. Launch it with `launch_netrunner_wave(wave_id=...)`, passing backend/model/reasoning only when needed.
-9. Wait with `wait_for_netrunner_wave(wave_id, return_when="first_review_ready")`.
-10. Review every returned worker serially:
+8. Launch it with `launch_netrunner_wave(wave_id=...)`. Use the top-level backend/model/reasoning as defaults and `worker_configs=[{session_id, backend?, model?, reasoning?}, ...]` for per-worker overrides in one mixed-model wave.
+9. After a successful launch, immediately report the launch to the Architect before the first `wait_for_netrunner_wave` call, unless the Architect explicitly requested launch-and-wait without an intermediate report. Include:
+   - the execution/dependency sequence: parallel groups and any DAG ordering;
+   - each Netrunner's responsibility;
+   - the resolved backend, model, and reasoning for each Netrunner;
+   - an estimated wait/execution time for each Netrunner;
+   - an estimated wait/execution time for the wave as a whole;
+   - the wave id, session ids, and each worker's initial `launched`, `running`, or dependency-pending status.
+   Use persisted launch configuration and returned initial statuses, label estimates as approximate when needed, and make this report the first response content required by the active-wave status rule. This launch report does not replace later active-wave reconciliation or the final-response wait requirement.
+10. Wait with `wait_for_netrunner_wave(wave_id, return_when="first_review_ready")`.
+11. Review every returned worker serially:
    - read the session report and proposals
    - inspect changed paths and the captured patch artifact
    - inspect the worker worktree when needed
    - verify scope boundaries and required tests
    - approve or reject doc proposals by Fixer judgment
    - complete the session or append precise rework
-11. Continue waiting until all workers are terminal; use `return_when="all_terminal"` when you need the final aggregate state.
-12. Clean up only after review decisions are made. Start conservative, then call `cleanup_netrunner_wave(remove_worktrees=true)` when it is safe.
+12. Continue waiting until all workers are terminal; use `return_when="all_terminal"` when you need the final aggregate state.
+13. Clean up only after review decisions are made. Start conservative, then call `cleanup_netrunner_wave(remove_worktrees=true)` when it is safe.
 
 ## Droid Backend Launches
 
@@ -108,21 +115,24 @@ launch_netrunner_wave(
 ```
 
 Model aliases, vision/web-search MCP availability, external-session stickiness,
-malformed-completion handling, and hang recovery follow the same Droid rules as
-`$run-one-netrunner-task`; that skill owns the canonical Droid launch rules.
+malformed-completion handling, and hang recovery follow the provider adapter canon.
 
 ## Safety Rules
 
 - The Fixer remains the serialized reviewer and integration authority.
 - Do not auto-merge, auto-apply worker patches, or let workers merge their own work. Review wave worker results serially.
 - Do not stage, copy, or expose local secrets to make a wave work. Move those
-  slices to serial execution.
+  slices to an explicitly manual operator session or report them blocked.
 - Do not let one unsafe slice block safe independent slices.
 - Netrunners must not remove worktrees, rebase, merge, change wave state, or edit another worker's branch.
 - Treat timeout, stale epoch, frozen orchestration, missing process, or scope drift as review blockers.
-- If the wave produces conflicting results, stop parallel handling and resolve serially.
+- If the wave produces conflicting results, create an explicit dependency-gated repair worker or stop and report the conflict; do not launch a serial autonomous worker.
 
 ## Reporting
+
+**CRITICAL RULE FOR ACTIVE WAVES:** When a wave starts, the Fixer MUST report the status of every active wave at the very beginning of every response they make to the user, until all waves are closed and no wave-reports are pending. This status block must be the first thing in the message.
+
+**CRITICAL RULE BEFORE ANY FINAL ANSWER:** While any wave in the project is active (created/running/review_ready, workers not all terminal), the Fixer MUST NOT send a final/closing message to the Architect without first calling `wait_for_netrunner_wave` on every active wave in that same turn. Every call must use `timeout_seconds` of at least 600 seconds. Use 600 seconds for ordinary polling; raise it as needed up to 21600 seconds for an expected very heavy or long-running Netrunner, and never exceed 21600. The call reconciles stale worker/wave status even when it returns early. The final message must reflect the wave state returned by that call, not stale assumptions.
 
 Report at least:
 

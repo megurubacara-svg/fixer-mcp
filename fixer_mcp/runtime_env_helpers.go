@@ -16,6 +16,7 @@ const (
 	fixerMcpToolProfileEnv = "FIXER_MCP_TOOL_PROFILE"
 	netrunnerGateProfile   = "netrunner_gate"
 	defaultFixerDBFilename = "fixer.db"
+	pythonNoBytecodeEnv    = "PYTHONDONTWRITEBYTECODE"
 )
 
 var proxyEnvNames = map[string]struct{}{
@@ -55,9 +56,22 @@ func clearProxyEnvSlice(baseEnv []string) []string {
 	return cleaned
 }
 
+func replaceEnvSliceValue(baseEnv []string, key string, value string) []string {
+	resolved := make([]string, 0, len(baseEnv)+1)
+	for _, entry := range baseEnv {
+		entryKey, _, found := strings.Cut(entry, "=")
+		if found && entryKey == key {
+			continue
+		}
+		resolved = append(resolved, entry)
+	}
+	return append(resolved, key+"="+value)
+}
+
 func resolveRuntimeLaunchEnv(projectCWD string, baseEnv []string) ([]string, error) {
 	_ = projectCWD
-	return clearProxyEnvSlice(baseEnv), nil
+	cleaned := clearProxyEnvSlice(baseEnv)
+	return replaceEnvSliceValue(cleaned, pythonNoBytecodeEnv, "1"), nil
 }
 
 func loadOptionalDotEnv(paths ...string) error {

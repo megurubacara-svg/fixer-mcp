@@ -370,7 +370,7 @@ class FixerAutonomousTests(unittest.TestCase):
         self.assertIn("send_operator_telegram_notification", prompt)
         self.assertIn("wake_fixer_autonomous", prompt)
 
-    def test_build_autonomous_netrunner_prompt_suppresses_wake_for_explicit_wait(self) -> None:
+    def test_build_autonomous_netrunner_prompt_suppresses_wake_for_wave_lifecycle(self) -> None:
         prompt = fixer_autonomous._build_autonomous_netrunner_prompt(
             7,
             ["fixer_mcp"],
@@ -380,8 +380,35 @@ class FixerAutonomousTests(unittest.TestCase):
         )
 
         self.assertIn("Do not call fixer_mcp.wake_fixer_autonomous", prompt)
-        self.assertIn("waiting Fixer's `wait_for_netrunner_session` polling is the completion signal", prompt)
+        self.assertIn("wave-level wait/reviewer lifecycle is the completion signal", prompt)
         self.assertNotIn("call the fixer_mcp tool `wake_fixer_autonomous`", prompt)
+
+    def test_serial_launch_command_is_not_exposed(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            fixer_autonomous._parse_args(
+                ["launch-netrunner", "--cwd", "/tmp/project", "--session-id", "7"]
+            )
+        self.assertIn("invalid choice", stderr.getvalue())
+
+    def test_wave_reviewer_link_requires_exact_wave_marker(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute("CREATE TABLE session (id INTEGER PRIMARY KEY, parallel_wave_id TEXT)")
+            conn.execute(
+                "INSERT INTO session (id, parallel_wave_id) VALUES (42, 'parallel-wave-review:9')"
+            )
+            session = fixer_wire.SessionRow(
+                session_id=7,
+                global_session_id=42,
+                task_description="review wave",
+                status="pending",
+            )
+            fixer_autonomous._require_wave_reviewer_link(conn, session, 9)
+            with self.assertRaisesRegex(RuntimeError, "is not the reviewer for wave 10"):
+                fixer_autonomous._require_wave_reviewer_link(conn, session, 10)
+        finally:
+            conn.close()
 
     def test_build_autonomous_netrunner_prompt_omits_empty_fixer_session_id(self) -> None:
         prompt = fixer_autonomous._build_autonomous_netrunner_prompt(

@@ -41,12 +41,12 @@ func fetchOrchestrationControl(projectID int) (orchestrationControl, bool, error
 	}
 
 	var (
-		sessionID            int
+		rawSessionID         sql.NullInt64
 		frozenInt            int
 		notificationsEnabled int
 	)
 	err := db.QueryRow(
-		`SELECT COALESCE(session_id, 0),
+		`SELECT session_id,
 		        state,
 		        summary,
 		        COALESCE(focus, ''),
@@ -59,7 +59,7 @@ func fetchOrchestrationControl(projectID int) (orchestrationControl, bool, error
 		 WHERE project_id = ?`,
 		projectID,
 	).Scan(
-		&sessionID,
+		&rawSessionID,
 		&record.State,
 		&record.Summary,
 		&record.Focus,
@@ -75,13 +75,21 @@ func fetchOrchestrationControl(projectID int) (orchestrationControl, bool, error
 	if err != nil {
 		return orchestrationControl{}, false, err
 	}
-	record.SessionID = sessionID
+	if rawSessionID.Valid && rawSessionID.Int64 > 0 {
+		record.SessionID = int(rawSessionID.Int64)
+	} else {
+		record.SessionID = 0
+	}
 	record.OrchestrationFrozen = frozenInt != 0
 	record.NotificationsEnabledForActiveRun = notificationsEnabled != 0
 	return record, true, nil
 }
 
 func upsertOrchestrationControl(projectID int, sessionID int, state string, summary string, focus string, blocker string, evidence string, epoch int, frozen bool, notificationsEnabled bool) error {
+	var sessionArg any
+	if sessionID > 0 {
+		sessionArg = sessionID
+	}
 	_, err := db.Exec(
 		`INSERT INTO autonomous_run_status (
 			project_id,
@@ -109,7 +117,7 @@ func upsertOrchestrationControl(projectID int, sessionID int, state string, summ
 		   notifications_enabled_for_active_run = excluded.notifications_enabled_for_active_run,
 		   updated_at = CURRENT_TIMESTAMP`,
 		projectID,
-		sessionID,
+		sessionArg,
 		state,
 		summary,
 		focus,

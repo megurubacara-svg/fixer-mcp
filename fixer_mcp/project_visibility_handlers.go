@@ -265,11 +265,12 @@ func resolveAutonomousSessionID(sessionID int, projectID int) (int, error) {
 
 func fetchAutonomousRunStatusRecord(projectID int) (AutonomousRunStatusRecord, error) {
 	var record AutonomousRunStatusRecord
+	var rawSessionID sql.NullInt64
 	var frozenInt int
 	var notificationsEnabled int
 	err := db.QueryRow(
 		`SELECT project_id,
-		        COALESCE(session_id, 0),
+		        session_id,
 		        state,
 		        summary,
 		        COALESCE(focus, ''),
@@ -284,7 +285,7 @@ func fetchAutonomousRunStatusRecord(projectID int) (AutonomousRunStatusRecord, e
 		projectID,
 	).Scan(
 		&record.ProjectId,
-		&record.SessionId,
+		&rawSessionID,
 		&record.State,
 		&record.Summary,
 		&record.Focus,
@@ -297,6 +298,21 @@ func fetchAutonomousRunStatusRecord(projectID int) (AutonomousRunStatusRecord, e
 	)
 	if err != nil {
 		return AutonomousRunStatusRecord{}, err
+	}
+	if rawSessionID.Valid && rawSessionID.Int64 > 0 {
+		globalSessionID := int(rawSessionID.Int64)
+		if authorizedRole == "fixer" || authorizedRole == "netrunner" {
+			localSessionID, err := projectScopedSessionIDFromGlobal(globalSessionID, projectID)
+			if err == nil {
+				record.SessionId = localSessionID
+			} else {
+				record.SessionId = globalSessionID
+			}
+		} else {
+			record.SessionId = globalSessionID
+		}
+	} else {
+		record.SessionId = 0
 	}
 	record.OrchestrationFrozen = frozenInt != 0
 	record.NotificationsEnabledForActiveRun = notificationsEnabled != 0

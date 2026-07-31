@@ -387,8 +387,6 @@ func TestSessionLifecycleHandlersLiveOutsideMain(t *testing.T) {
 	}
 
 	launchSymbols := []string{
-		"type ExplicitNetrunnerLaunchMetadata",
-		"func LaunchExplicitNetrunner(",
 		"func WaitForNetrunnerSession(",
 		"func WaitForNetrunnerSessions(",
 	}
@@ -453,12 +451,7 @@ func TestTranscriptHandlersLiveOutsideMain(t *testing.T) {
 	launchSymbols := []string{
 		"type LaunchAndWaitFixersInput",
 		"func LaunchAndWaitFixers(",
-		"type ExplicitNetrunnerLaunchMetadata",
-		"func LaunchExplicitNetrunner(",
 		"func WaitForNetrunnerSession(",
-		"func WaitForNetrunnerSessions(",
-		"type LaunchAndWaitNetrunnerInput",
-		"func LaunchAndWaitNetrunner(",
 	}
 	for _, symbol := range launchSymbols {
 		if strings.Contains(string(transcriptSource), symbol) {
@@ -527,7 +520,6 @@ func TestLaunchWaitHandlersLiveOutsideMain(t *testing.T) {
 		"func readSessionLaunchConfig(",
 		"func resolveSessionLaunchConfig(",
 		"func waitForSessionExternalID(",
-		"func explicitLaunchArtifacts(",
 		"func readExplicitLaunchWorkerMetadata(",
 		"type ListActiveWorkerProcessesInput",
 		"type ListActiveWorkerProcessesOutput",
@@ -535,21 +527,13 @@ func TestLaunchWaitHandlersLiveOutsideMain(t *testing.T) {
 		"type StopActiveWorkerProcessesInput",
 		"type StopActiveWorkerProcessesOutput",
 		"func StopActiveWorkerProcesses(",
-		"type ExplicitNetrunnerLaunchMetadata",
-		"type LaunchExplicitNetrunnerInput",
-		"type LaunchExplicitNetrunnerOutput",
 		"type WaitForNetrunnerSessionInput",
 		"type ExplicitNetrunnerWaitResult",
 		"type WaitForNetrunnerSessionOutput",
 		"type WaitForNetrunnerSessionsInput",
 		"type ExplicitNetrunnerWaitAnyResult",
 		"type WaitForNetrunnerSessionsOutput",
-		"type LaunchAndWaitNetrunnerInput",
-		"type LaunchAndWaitNetrunnerOutput",
-		"type activeLaunchSession",
-		"func loadActiveLaunchSessions(",
 		"func waitFollowUpDecision(",
-		"func launchExplicitNetrunnerWithMetadata(",
 		"func fetchSessionWaitSnapshot(",
 		"type explicitWaitCandidate",
 		"type explicitWaitSnapshot",
@@ -560,10 +544,8 @@ func TestLaunchWaitHandlersLiveOutsideMain(t *testing.T) {
 		"func malformedReviewSnapshotReason(",
 		"func waitForNetrunnerSessionsResult(",
 		"func waitForNetrunnerSessionResult(",
-		"func LaunchExplicitNetrunner(",
 		"func WaitForNetrunnerSession(",
 		"func WaitForNetrunnerSessions(",
-		"func LaunchAndWaitNetrunner(",
 	}
 	for _, symbol := range launchWaitSymbols {
 		if strings.Contains(string(mainSource), symbol) {

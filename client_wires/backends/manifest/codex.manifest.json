@@ -31,7 +31,7 @@
     "api_key_env": "CODEX_API_KEY"
   },
   "reasoning": {
-    "options": ["low", "medium", "high", "xhigh"],
+    "options": ["low", "medium", "high", "xhigh", "ultra"],
     "default": "xhigh",
     "pass_mechanism": "config-key",
     "flag_or_key": "model_reasoning_effort"

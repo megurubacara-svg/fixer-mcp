@@ -1,0 +1,6 @@
+### Public client profile returned by protected client endpoints.
+class: ClientProfile
+fields:
+  clientId: UuidValue
+  email: String
+  displayName: String

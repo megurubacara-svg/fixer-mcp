@@ -7,6 +7,196 @@ import (
 	"strings"
 )
 
+// ProjectDocTreeItem is the dashboard-facing representation of one canonical
+// project document. IDs are project-scoped (the same convention used by the
+// existing docs and attachment APIs), so the tree can be consumed without
+// leaking database-global identifiers to the client.
+type ProjectDocTreeItem struct {
+	ID             int                  `json:"id"`
+	ParentDocID    int                  `json:"parent_doc_id,omitempty"`
+	Level          int                  `json:"level"`
+	Slug           string               `json:"slug"`
+	Path           string               `json:"path"`
+	Status         string               `json:"status"`
+	Title          string               `json:"title"`
+	DocType        string               `json:"doc_type"`
+	ContentPreview string               `json:"content_preview"`
+	Content        string               `json:"content"`
+	Children       []ProjectDocTreeItem `json:"children"`
+}
+
+type ProjectDocsTreeResponse struct {
+	Project   ProjectHeader        `json:"project"`
+	TotalDocs int                  `json:"total_docs"`
+	Roots     []ProjectDocTreeItem `json:"roots"`
+}
+
+type ProjectDocDetailResponse struct {
+	Project  ProjectHeader      `json:"project"`
+	Document ProjectDocTreeItem `json:"document"`
+}
+
+// ProjectDocsTree returns the canonical project-doc tree in deterministic
+// parent-first order. The current project-doc schema is required here; legacy
+// summary consumers continue to use ProjectDocs below unchanged.
+func (r *Repository) ProjectDocsTree(ctx context.Context, projectID int) (ProjectDocsTreeResponse, error) {
+	project, err := r.requireProject(ctx, projectID)
+	if err != nil {
+		return ProjectDocsTreeResponse{}, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			(
+				SELECT COUNT(*)
+				FROM project_doc d2
+				WHERE d2.project_id = d.project_id AND d2.id <= d.id
+			) AS local_doc_id,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM project_doc parent_ranked
+				WHERE parent_ranked.project_id = d.project_id AND parent_ranked.id <= d.parent_doc_id
+			), 0) AS parent_local_doc_id,
+			COALESCE(d.level, 0),
+			COALESCE(d.slug, ''),
+			COALESCE(d.path, ''),
+			COALESCE(d.status, 'current'),
+			d.title,
+			COALESCE(d.doc_type, 'documentation'),
+			d.content
+		FROM project_doc d
+		WHERE d.project_id = ?
+		ORDER BY COALESCE(d.level, 0), COALESCE(d.path, ''), d.id`, projectID)
+	if err != nil {
+		return ProjectDocsTreeResponse{}, err
+	}
+	defer rows.Close()
+
+	items := make([]ProjectDocTreeItem, 0)
+	for rows.Next() {
+		var item ProjectDocTreeItem
+		if err := rows.Scan(
+			&item.ID,
+			&item.ParentDocID,
+			&item.Level,
+			&item.Slug,
+			&item.Path,
+			&item.Status,
+			&item.Title,
+			&item.DocType,
+			&item.Content,
+		); err != nil {
+			return ProjectDocsTreeResponse{}, err
+		}
+		item.ContentPreview = summarizeContent(item.Content)
+		item.Children = []ProjectDocTreeItem{}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return ProjectDocsTreeResponse{}, err
+	}
+
+	knownIDs := make(map[int]struct{}, len(items))
+	childrenByParent := make(map[int][]ProjectDocTreeItem, len(items))
+	rootItems := make([]ProjectDocTreeItem, 0, len(items))
+	for _, item := range items {
+		knownIDs[item.ID] = struct{}{}
+	}
+	for _, item := range items {
+		if item.ParentDocID == 0 {
+			rootItems = append(rootItems, item)
+			continue
+		}
+		if _, ok := knownIDs[item.ParentDocID]; !ok {
+			// A partially migrated legacy row should remain visible instead of
+			// making the whole project tree disappear.
+			rootItems = append(rootItems, item)
+			continue
+		}
+		childrenByParent[item.ParentDocID] = append(childrenByParent[item.ParentDocID], item)
+	}
+
+	var withChildren func(ProjectDocTreeItem) ProjectDocTreeItem
+	withChildren = func(item ProjectDocTreeItem) ProjectDocTreeItem {
+		children := childrenByParent[item.ID]
+		item.Children = make([]ProjectDocTreeItem, 0, len(children))
+		for _, child := range children {
+			item.Children = append(item.Children, withChildren(child))
+		}
+		return item
+	}
+	roots := make([]ProjectDocTreeItem, 0, len(rootItems))
+	for _, root := range rootItems {
+		roots = append(roots, withChildren(root))
+	}
+
+	return ProjectDocsTreeResponse{
+		Project:   ProjectHeader{ID: project.ID, Name: project.Name, CWD: project.CWD},
+		TotalDocs: len(items),
+		Roots:     roots,
+	}, nil
+}
+
+// ProjectDoc returns one selected document, including its complete Markdown
+// content. The input ID is project-scoped, matching ProjectDocsTree.
+func (r *Repository) ProjectDoc(ctx context.Context, projectID int, localDocID int) (ProjectDocDetailResponse, error) {
+	project, err := r.requireProject(ctx, projectID)
+	if err != nil {
+		return ProjectDocDetailResponse{}, err
+	}
+	if localDocID <= 0 {
+		return ProjectDocDetailResponse{}, fmt.Errorf("invalid project document id")
+	}
+
+	var item ProjectDocTreeItem
+	err = r.db.QueryRowContext(ctx, `
+		SELECT
+			(
+				SELECT COUNT(*)
+				FROM project_doc d2
+				WHERE d2.project_id = d.project_id AND d2.id <= d.id
+			) AS local_doc_id,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM project_doc parent_ranked
+				WHERE parent_ranked.project_id = d.project_id AND parent_ranked.id <= d.parent_doc_id
+			), 0) AS parent_local_doc_id,
+			COALESCE(d.level, 0),
+			COALESCE(d.slug, ''),
+			COALESCE(d.path, ''),
+			COALESCE(d.status, 'current'),
+			d.title,
+			COALESCE(d.doc_type, 'documentation'),
+			d.content
+		FROM project_doc d
+		WHERE d.project_id = ?
+			AND (
+				SELECT COUNT(*)
+				FROM project_doc d2
+				WHERE d2.project_id = d.project_id AND d2.id <= d.id
+			) = ?`, projectID, localDocID).Scan(
+		&item.ID,
+		&item.ParentDocID,
+		&item.Level,
+		&item.Slug,
+		&item.Path,
+		&item.Status,
+		&item.Title,
+		&item.DocType,
+		&item.Content,
+	)
+	if err != nil {
+		return ProjectDocDetailResponse{}, err
+	}
+	item.ContentPreview = summarizeContent(item.Content)
+	item.Children = []ProjectDocTreeItem{}
+
+	return ProjectDocDetailResponse{
+		Project:  ProjectHeader{ID: project.ID, Name: project.Name, CWD: project.CWD},
+		Document: item,
+	}, nil
+}
+
 func (r *Repository) ProjectDocs(ctx context.Context, projectID int) (ProjectDocsResponse, error) {
 	project, err := r.requireProject(ctx, projectID)
 	if err != nil {

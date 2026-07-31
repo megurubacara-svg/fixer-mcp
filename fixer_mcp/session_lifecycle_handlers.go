@@ -27,8 +27,8 @@ type GetPendingTasksOutput struct {
 func GetPendingTasks(ctx context.Context, req *mcp.CallToolRequest, input GetPendingTasksInput) (*mcp.CallToolResult, GetPendingTasksOutput, error) {
 	log.Println("get_pending_tasks called")
 
-	if authorizedRole != "netrunner" {
-		return &mcp.CallToolResult{IsError: true}, GetPendingTasksOutput{}, fmt.Errorf("access denied: requires netrunner role")
+	if authorizedRole != "netrunner" && authorizedRole != "fixer" {
+		return &mcp.CallToolResult{IsError: true}, GetPendingTasksOutput{}, fmt.Errorf("access denied: requires fixer or netrunner role")
 	}
 
 	rows, err := db.Query(`
@@ -118,11 +118,34 @@ func CheckoutTask(ctx context.Context, req *mcp.CallToolRequest, input CheckoutT
 type CreateTaskInput struct {
 	TaskDescription    string   `json:"task_description" jsonschema:"Description of the task to be created"`
 	DeclaredWriteScope []string `json:"declared_write_scope,omitempty" jsonschema:"Optional declared project-relative write scope for the session. Defaults to the whole project to preserve serial execution."`
+	EpicDocId          int      `json:"epic_doc_id,omitempty" jsonschema:"Optional project-scoped epic documentation ID to link to the session."`
 }
 
 type CreateTaskOutput struct {
 	SessionId int    `json:"session_id"`
 	Status    string `json:"status"`
+}
+
+func resolveProjectScopedEpicDocID(localDocID int, projectID int) (int, error) {
+	if localDocID == 0 {
+		return 0, nil
+	}
+
+	globalDocID, err := globalProjectDocIDFromProjectScoped(localDocID, projectID)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("epic_doc_id not found in current project")
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to resolve epic_doc_id: %v", err)
+	}
+	return globalDocID, nil
+}
+
+func nullableEpicDocID(globalDocID int) any {
+	if globalDocID <= 0 {
+		return nil
+	}
+	return globalDocID
 }
 
 func CreateTask(ctx context.Context, req *mcp.CallToolRequest, input CreateTaskInput) (*mcp.CallToolResult, CreateTaskOutput, error) {
@@ -134,12 +157,31 @@ func CreateTask(ctx context.Context, req *mcp.CallToolRequest, input CreateTaskI
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, CreateTaskOutput{}, err
 	}
-	res, err := db.Exec(
-		"INSERT INTO session (project_id, task_description, status, declared_write_scope) VALUES (?, ?, 'pending', ?)",
-		authorizedProjectId,
-		input.TaskDescription,
-		declaredWriteScope,
-	)
+	epicDocID, err := resolveProjectScopedEpicDocID(input.EpicDocId, authorizedProjectId)
+	if err != nil {
+		return &mcp.CallToolResult{IsError: true}, CreateTaskOutput{}, err
+	}
+	hasEpicDocColumn := dbTableHasColumn("session", "epic_doc_id")
+	if epicDocID > 0 && !hasEpicDocColumn {
+		return &mcp.CallToolResult{IsError: true}, CreateTaskOutput{}, fmt.Errorf("session table is missing epic_doc_id")
+	}
+	var res sql.Result
+	if hasEpicDocColumn {
+		res, err = db.Exec(
+			"INSERT INTO session (project_id, task_description, status, declared_write_scope, epic_doc_id) VALUES (?, ?, 'pending', ?, ?)",
+			authorizedProjectId,
+			input.TaskDescription,
+			declaredWriteScope,
+			nullableEpicDocID(epicDocID),
+		)
+	} else {
+		res, err = db.Exec(
+			"INSERT INTO session (project_id, task_description, status, declared_write_scope) VALUES (?, ?, 'pending', ?)",
+			authorizedProjectId,
+			input.TaskDescription,
+			declaredWriteScope,
+		)
+	}
 	if err != nil {
 		return &mcp.CallToolResult{IsError: true}, CreateTaskOutput{}, fmt.Errorf("DB insert error: %v", err)
 	}
@@ -691,6 +733,7 @@ type SessionDetails struct {
 	CliModel              string   `json:"cli_model,omitempty"`
 	CliReasoning          string   `json:"cli_reasoning,omitempty"`
 	DeclaredWriteScope    []string `json:"declared_write_scope"`
+	EpicDocId             int      `json:"epic_doc_id,omitempty"`
 	RepairSourceSessionId int      `json:"repair_source_session_id,omitempty"`
 	ReworkCount           int      `json:"rework_count"`
 	ForcedStopCount       int      `json:"forced_stop_count"`
@@ -719,6 +762,27 @@ func GetSession(ctx context.Context, req *mcp.CallToolRequest, input GetSessionI
 
 	var session SessionDetails
 	var declaredWriteScope string
+	epicDocColumn := ""
+	scanArgs := []any{
+		&session.Id,
+		&session.ProjectId,
+		&session.TaskDescription,
+		&session.Status,
+		&session.Report,
+		&session.CliBackend,
+		&session.CliModel,
+		&session.CliReasoning,
+		&declaredWriteScope,
+	}
+	if dbTableHasColumn("session", "epic_doc_id") {
+		epicDocColumn = "COALESCE(epic_doc_id, 0),"
+		scanArgs = append(scanArgs, &session.EpicDocId)
+	}
+	scanArgs = append(scanArgs,
+		&session.RepairSourceSessionId,
+		&session.ReworkCount,
+		&session.ForcedStopCount,
+	)
 	err := db.QueryRow(
 		`SELECT id,
 		        project_id,
@@ -729,6 +793,7 @@ func GetSession(ctx context.Context, req *mcp.CallToolRequest, input GetSessionI
 		        COALESCE(cli_model, ''),
 		        COALESCE(cli_reasoning, ''),
 		        COALESCE(declared_write_scope, ''),
+		        `+epicDocColumn+`
 		        COALESCE(repair_source_session_id, 0),
 		        COALESCE(rework_count, 0),
 		        COALESCE(forced_stop_count, 0)
@@ -736,20 +801,7 @@ func GetSession(ctx context.Context, req *mcp.CallToolRequest, input GetSessionI
 		 WHERE id = ?`,
 		defaultCliBackend,
 		targetSessionID,
-	).Scan(
-		&session.Id,
-		&session.ProjectId,
-		&session.TaskDescription,
-		&session.Status,
-		&session.Report,
-		&session.CliBackend,
-		&session.CliModel,
-		&session.CliReasoning,
-		&declaredWriteScope,
-		&session.RepairSourceSessionId,
-		&session.ReworkCount,
-		&session.ForcedStopCount,
-	)
+	).Scan(scanArgs...)
 	if err == sql.ErrNoRows {
 		return &mcp.CallToolResult{IsError: true}, GetSessionOutput{}, fmt.Errorf("session not found")
 	}
@@ -777,6 +829,13 @@ func GetSession(ctx context.Context, req *mcp.CallToolRequest, input GetSessionI
 				return &mcp.CallToolResult{IsError: true}, GetSessionOutput{}, fmt.Errorf("DB mapping error: %v", err)
 			}
 			session.RepairSourceSessionId = localRepairSourceID
+		}
+		if session.EpicDocId > 0 {
+			localEpicDocID, err := projectScopedDocIDFromGlobal(session.EpicDocId, session.ProjectId)
+			if err != nil {
+				return &mcp.CallToolResult{IsError: true}, GetSessionOutput{}, fmt.Errorf("DB mapping error: %v", err)
+			}
+			session.EpicDocId = localEpicDocID
 		}
 	}
 

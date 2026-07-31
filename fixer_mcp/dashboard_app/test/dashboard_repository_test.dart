@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fixer_dashboard_app/src/dashboard_repository.dart';
+import 'package:fixer_dashboard_app/src/dashboard_runtime_client.dart';
+import 'package:fixer_dashboard_app/src/hub/fixer_chat/fixer_chat_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -81,6 +83,8 @@ void main() {
               'latest_local_session_id': 3,
               'has_pending_review': true,
               'has_active_workers': true,
+              'last_activity_at': '2026-04-28T11:00:00Z',
+              'active_wave_count': 1,
             },
           ],
           'active_workers': [
@@ -122,6 +126,8 @@ void main() {
             },
             'attached_doc_count': 3,
             'pending_proposal_count': 2,
+            'active_wave_count': 1,
+            'total_wave_count': 2,
             'worker_state': {
               'running_count': 1,
               'has_running': true,
@@ -204,6 +210,21 @@ void main() {
             'transcript_availability': 'metadata_only',
             'residual_risk': 'metadata only',
           },
+          'waves': [
+            {
+              'wave_id': 145,
+              'wave_identity': 'wave-145',
+              'status': 'running',
+              'created_at': '2026-04-28T10:00:00Z',
+              'updated_at': '2026-04-28T11:00:00Z',
+              'launched_at': '2026-04-28T10:01:00Z',
+              'completed_at': '',
+              'worker_count': 1,
+              'reviewer_count': 0,
+              'manual_count': 0,
+              'sessions': [],
+            },
+          ],
         },
         '/api/projects/1/docs' => {
           'project': {
@@ -234,6 +255,48 @@ void main() {
               },
             ],
           },
+        },
+        '/api/projects/1/docs/tree' => {
+          'project': {
+            'id': 1,
+            'name': 'Fixer MCP',
+            'cwd': '/tmp/self_orchestration',
+          },
+          'total_docs': 1,
+          'roots': [
+            {
+              'id': 11,
+              'parent_doc_id': null,
+              'level': 0,
+              'slug': 'desktop-migration',
+              'path': 'desktop-migration',
+              'status': 'current',
+              'title': 'Codex Hub Desktop Migration Brief',
+              'doc_type': 'architecture',
+              'content': '# Desktop migration',
+              'children': [],
+            },
+          ],
+        },
+        '/api/projects/1/fixer-threads' => {
+          'project_id': 1,
+          'threads': [
+            {
+              'external_id': '019fixer-droid',
+              'headline': 'Droid Fixer thread',
+              'status': 'active',
+              'backend': 'droid',
+              'model': 'kimi-k2.7-code',
+              'reasoning': 'high',
+              'cwd': '/tmp/self_orchestration',
+              'last_activity_at': '2026-04-28T12:00:00Z',
+              'transcript_available': true,
+            },
+          ],
+        },
+        '/api/actions/projects/1/fixer-chats' => {
+          'status': 'launched',
+          'pid': 4242,
         },
         '/api/projects/1/fixer-chat-binding' => {
           'project_id': 1,
@@ -492,11 +555,32 @@ void main() {
     final home = await repository.loadHomeSnapshot();
     expect(home.projects.single.project.name, 'Fixer MCP');
     expect(home.activeWorkers.single.localSessionId, 3);
+    expect(home.projects.single.activeWaveCount, 1);
 
     final project = await repository.loadProjectWorkspace(1);
     expect(project.project.name, 'Fixer MCP');
     expect(project.docs.groups.single.docs.single.title, contains('Migration'));
+    expect(project.documentsTree.roots.single.slug, 'desktop-migration');
+    expect(project.metrics.activeWaveCount, 1);
+    expect(project.waveGroups.single.waveIdentity, 'wave-145');
     expect(project.netrunners.single.model, 'gpt-5.4');
+
+    final fixerService = BridgeFixerChatService(
+      runtimeClient: DashboardRuntimeClient(
+        dashboardBaseUrl: 'http://${server.address.host}:${server.port}',
+      ),
+    );
+    final fixerThreads = await fixerService.loadFixerThreads(1);
+    expect(fixerThreads.single.backend, 'droid');
+    await fixerService.createFixerChat(
+      1,
+      const FixerChatLaunchRequest(
+        backend: 'droid',
+        model: 'kimi-k2.7-code',
+        reasoning: 'high',
+        cwd: '/tmp/self_orchestration',
+      ),
+    );
 
     final fixerBinding = await repository.loadFixerChatBinding(1);
     expect(fixerBinding.defaultSession?.codexSessionId, '019fixer');

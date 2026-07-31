@@ -13,7 +13,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from client_wires import fixer_wire
-from client_wires.backends.antigravity_adapter import AntigravityBackendAdapter
+from client_wires import backends as backends_pkg
+from client_wires.backends import catalog as backends_catalog
+from client_wires.backends.antigravity_adapter import (
+    ANTIGRAVITY_MCP_TIMEOUT_ENV,
+    ANTIGRAVITY_MCP_TIMEOUT_SECONDS,
+    AntigravityBackendAdapter,
+)
 from client_wires.backends.base import (
     FIXER_RETIRED_SKILL_NAMES,
     FIXER_ROLE_SKILL_NAMES,
@@ -1061,7 +1067,44 @@ class _FakeAdapter:
 class BackendCatalogTests(unittest.TestCase):
     def test_available_backend_descriptors_include_claude(self) -> None:
         backend_names = [descriptor.name for descriptor in fixer_wire.available_backend_descriptors()]
-        self.assertEqual(backend_names, ["codex", "droid", "claude", "antigravity", "junie", "kimi-code"])
+        self.assertEqual(
+            backend_names,
+            ["codex", "droid", "claude", "antigravity", "junie", "kimi-code", "kimi-code-native"],
+        )
+
+    def test_available_backend_descriptors_includes_unsubscribed_backends(self) -> None:
+        # available_backend_descriptors() is the structural "every backend
+        # Fixer MCP knows how to drive" list — resume flows and name lookups
+        # depend on this including backends the Architect isn't currently
+        # subscribed to. subscribed_backend_descriptors() is the filtered one.
+        descriptor = next(
+            item for item in backends_pkg.available_backend_descriptors() if item.name == "droid"
+        )
+        self.assertFalse(descriptor.available)
+
+    def test_subscribed_backend_descriptors_matches_current_architect_subscriptions(self) -> None:
+        subscribed = {descriptor.name for descriptor in backends_pkg.subscribed_backend_descriptors()}
+        self.assertEqual(subscribed, {"antigravity", "claude", "codex", "kimi-code", "kimi-code-native"})
+
+    def test_is_backend_available_reflects_catalog_flag(self) -> None:
+        self.assertTrue(backends_pkg.is_backend_available("claude"))
+        self.assertTrue(backends_pkg.is_backend_available("codex"))
+        self.assertFalse(backends_pkg.is_backend_available("droid"))
+
+    def test_set_backend_availability_round_trips_without_touching_real_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_catalog = Path(tmp) / "backend-catalog.json"
+            temp_catalog.write_text(
+                json.dumps({"backends": {"codex": {"available": False}}}), encoding="utf-8"
+            )
+            with patch.object(backends_catalog, "_catalog_path", return_value=temp_catalog):
+                backends_catalog.load_backend_catalog.cache_clear()
+                self.assertFalse(backends_catalog.is_backend_available("codex"))
+                backends_catalog.set_backend_availability("codex", True)
+                self.assertTrue(backends_catalog.is_backend_available("codex"))
+                persisted = json.loads(temp_catalog.read_text(encoding="utf-8"))
+                self.assertTrue(persisted["backends"]["codex"]["available"])
+            backends_catalog.load_backend_catalog.cache_clear()
 
     def test_codex_catalog_exposes_gpt_56_family_with_luna_default(self) -> None:
         descriptor = next(item for item in fixer_wire.available_backend_descriptors() if item.name == "codex")
@@ -1210,6 +1253,7 @@ class BackendCatalogTests(unittest.TestCase):
         self.assertEqual(descriptors["antigravity"].default_model, "default")
         self.assertEqual(descriptors["antigravity"].default_reasoning, "default")
         self.assertIn("Gemini 3.5 Flash", descriptors["antigravity"].model_options)
+        self.assertIn("Gemini 3.6 Flash", descriptors["antigravity"].model_options)
         self.assertIn("Claude Sonnet 4.6", descriptors["antigravity"].model_options)
         self.assertIn("high", descriptors["antigravity"].reasoning_options)
 
@@ -1319,7 +1363,18 @@ class BackendCatalogTests(unittest.TestCase):
             available={},
             prompt="hello",
         )
-        self.assertEqual(command, ["claude", "--model", "sonnet", "--dangerously-skip-permissions", "hello"])
+        self.assertEqual(
+            command,
+            [
+                "claude",
+                "--model",
+                "sonnet",
+                "--effort",
+                "medium",
+                "--dangerously-skip-permissions",
+                "hello",
+            ],
+        )
 
     def test_claude_adapter_builds_resume_command(self) -> None:
         adapter = ClaudeCodeBackendAdapter()
@@ -1335,7 +1390,10 @@ class BackendCatalogTests(unittest.TestCase):
             available={},
             prompt="hello",
         )
-        self.assertEqual(command, ["agy", "--dangerously-skip-permissions", "--print", "hello"])
+        self.assertEqual(
+            command,
+            ["agy", "--dangerously-skip-permissions", "--print-timeout", "120m", "--print", "hello"],
+        )
 
     def test_antigravity_adapter_builds_interactive_prompt_args_for_tui_launches(self) -> None:
         adapter = AntigravityBackendAdapter()
@@ -1363,6 +1421,19 @@ class BackendCatalogTests(unittest.TestCase):
         self.assertEqual(adapter._build_model_args("Gemini 3.5 Flash", "high"), ["--model", "Gemini 3.5 Flash (High)"])
         self.assertEqual(adapter._build_model_args("gemini-3.5-flash", "low"), ["--model", "Gemini 3.5 Flash (Low)"])
         self.assertEqual(adapter._build_model_args("Gemini 3.1 Pro", "high"), ["--model", "Gemini 3.1 Pro (High)"])
+
+    def test_antigravity_adapter_maps_gemini_36_flash_with_reasoning(self) -> None:
+        # `agy models` (the live CLI's own authoritative listing command, run
+        # 2026-07-24) confirms gemini-3.6-flash-high/-medium/-low all exist,
+        # matching the same three-tier shape as Gemini 3.5 Flash. Natural-
+        # language self-report probing turned out to be an unreliable way to
+        # confirm which tier actually got selected (even a request for the
+        # already-proven "High" tier didn't always echo the tier name back),
+        # so trust the deterministic `agy models` listing over that.
+        adapter = AntigravityBackendAdapter()
+        self.assertEqual(adapter._build_model_args("Gemini 3.6 Flash", "high"), ["--model", "Gemini 3.6 Flash (High)"])
+        self.assertEqual(adapter._build_model_args("gemini-3.6-flash", "medium"), ["--model", "Gemini 3.6 Flash (Medium)"])
+        self.assertEqual(adapter._build_model_args("gemini-3.6-flash", "low"), ["--model", "Gemini 3.6 Flash (Low)"])
 
     def test_antigravity_persisted_selection_keeps_fixer_model_reasoning_contract(self) -> None:
         with sqlite3.connect(":memory:") as conn:
@@ -1445,7 +1516,16 @@ class BackendCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             command,
-            ["agy", "--dangerously-skip-permissions", "--model", "Gemini 3.5 Flash (High)", "--print", "hello"],
+            [
+                "agy",
+                "--dangerously-skip-permissions",
+                "--print-timeout",
+                "120m",
+                "--model",
+                "Gemini 3.5 Flash (High)",
+                "--print",
+                "hello",
+            ],
         )
 
     def test_antigravity_adapter_builds_headless_skill_prompt_with_skill_name_request(self) -> None:
@@ -1462,10 +1542,83 @@ class BackendCatalogTests(unittest.TestCase):
             [
                 "agy",
                 "--dangerously-skip-permissions",
+                "--print-timeout",
+                "120m",
                 "--print",
                 "/run-manual-netrunner\nUse headless mode.",
             ],
         )
+
+    def test_antigravity_adapter_patches_fixer_mcp_timeout_in_both_config_scopes(self) -> None:
+        adapter = AntigravityBackendAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cwd = root / "workspace"
+            user_config = root / "home" / "config" / "mcp_config.json"
+            user_config.parent.mkdir(parents=True)
+            user_config.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "playwright": {"command": "keep-me"},
+                        },
+                        "otherSetting": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            selected = {"fixer_mcp": {"command": "/tmp/fixer_mcp"}}
+            available = {"fixer_mcp": {"command": "/tmp/fixer_mcp", "transport": "stdio"}}
+
+            with patch.dict(os.environ, {"FIXER_ANTIGRAVITY_MCP_CONFIG_PATH": str(user_config)}, clear=False):
+                adapter.ensure_runtime_files(cwd, object(), selected, available)
+
+            workspace_payload = json.loads((cwd / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+            user_payload = json.loads(user_config.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            workspace_payload["mcpServers"]["fixer_mcp"]["timeoutSeconds"],
+            ANTIGRAVITY_MCP_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(
+            user_payload["mcpServers"]["fixer_mcp"]["timeoutSeconds"],
+            ANTIGRAVITY_MCP_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(user_payload["mcpServers"]["playwright"], {"command": "keep-me"})
+        self.assertTrue(user_payload["otherSetting"])
+
+    def test_antigravity_timeout_override_updates_mcp_and_print_timeout(self) -> None:
+        adapter = AntigravityBackendAdapter()
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            config_path = cwd / "user" / "mcp_config.json"
+            with patch.dict(
+                os.environ,
+                {
+                    ANTIGRAVITY_MCP_TIMEOUT_ENV: "901",
+                    "FIXER_ANTIGRAVITY_MCP_CONFIG_PATH": str(config_path),
+                },
+                clear=False,
+            ):
+                command = adapter.build_headless_command(
+                    model="default",
+                    reasoning="default",
+                    selected={},
+                    available={},
+                    prompt="hello",
+                )
+                adapter.ensure_runtime_files(
+                    cwd,
+                    object(),
+                    {"fixer_mcp": {"command": "/tmp/fixer_mcp"}},
+                    {"fixer_mcp": {"command": "/tmp/fixer_mcp"}},
+                )
+
+            payload = json.loads((cwd / ".agents" / "mcp_config.json").read_text(encoding="utf-8"))
+
+        self.assertIn("--print-timeout", command)
+        self.assertIn("901s", command)
+        self.assertEqual(payload["mcpServers"]["fixer_mcp"]["timeoutSeconds"], 901)
 
     def test_antigravity_adapter_builds_resume_command_with_conversation_flag(self) -> None:
         adapter = AntigravityBackendAdapter()
@@ -1732,6 +1885,7 @@ class AntigravityRuntimeMaterializationTests(unittest.TestCase):
                                 "FIXER_MCP_LOCKED_ROLE": "netrunner",
                                 "TOKEN": "secret",
                             },
+                            "timeoutSeconds": ANTIGRAVITY_MCP_TIMEOUT_SECONDS,
                         },
                         "remote-search": {
                             "disabled": False,
@@ -2077,9 +2231,9 @@ class CodexBackendAdapterTests(unittest.TestCase):
             [
                 "INNER_FLAGS",
                 "-c",
-                'mcp_servers.fixer_netrunner_gate.enabled_tools=["launch_and_wait_netrunner","launch_netrunner_wave","wait_for_netrunner_wave"]',
+                'mcp_servers.fixer_netrunner_gate.enabled_tools=["launch_netrunner_wave","wait_for_netrunner_wave"]',
                 "-c",
-                'mcp_servers.fixer_mcp.disabled_tools=["launch_and_wait_netrunner","launch_netrunner_wave","wait_for_netrunner_wave"]',
+                'mcp_servers.fixer_mcp.disabled_tools=["launch_netrunner_wave","wait_for_netrunner_wave"]',
                 "-c",
                 'features.code_mode.direct_only_tool_namespaces=["mcp__fixer_netrunner_gate"]',
             ],

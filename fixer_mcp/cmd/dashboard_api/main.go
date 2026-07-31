@@ -10,7 +10,14 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:8090", "listen address")
+	defaultAddr := os.Getenv("DASHBOARD_API_LISTEN_ADDR")
+	if defaultAddr == "" {
+		defaultAddr = os.Getenv("LISTEN_ADDR")
+	}
+	if defaultAddr == "" {
+		defaultAddr = "0.0.0.0:18090"
+	}
+	addr := flag.String("addr", defaultAddr, "listen address")
 	dbPath := flag.String("db", "", "path to fixer.db")
 	projectCWD := flag.String("cwd", "", "current project cwd for binding derivation")
 	flag.Parse()

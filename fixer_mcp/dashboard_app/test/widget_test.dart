@@ -1,9 +1,171 @@
 import 'package:fixer_dashboard_app/main.dart';
 import 'package:fixer_dashboard_app/src/dashboard_models.dart';
 import 'package:fixer_dashboard_app/src/dashboard_repository.dart';
+import 'package:fixer_dashboard_app/src/hub/backlog/backlog_models.dart';
+import 'package:fixer_dashboard_app/src/hub/backlog/backlog_repository.dart';
+import 'package:fixer_dashboard_app/src/hub/docs/documents_explorer.dart';
+import 'package:fixer_dashboard_app/src/hub/fixer_chat/fixer_chat.dart';
+import 'package:fixer_dashboard_app/src/hub/netrunner_thread/netrunner_thread.dart';
+import 'package:fixer_dashboard_app/src/hub/netrunners/netrunners.dart';
+import 'package:fixer_dashboard_app/src/hub/overseer/overseer.dart';
+import 'package:fixer_dashboard_app/src/hub/skills/skills_models.dart';
+import 'package:fixer_dashboard_app/src/hub/skills/skills_repository.dart';
+import 'package:fixer_dashboard_app/src/mission_control/mission_control_models.dart';
+import 'package:fixer_dashboard_app/src/mission_control/mission_control_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:markdown_widget/markdown_widget.dart';
+import 'package:visibility_detector/visibility_detector.dart';
+
+class FakeBacklogRepository implements BacklogRepository {
+  @override
+  Future<ProjectBacklogSnapshot> loadProjectBacklog(int projectId) async {
+    return const ProjectBacklogSnapshot(
+      project: BacklogProjectRecord(
+        id: 1,
+        name: 'Fixer MCP',
+        cwd: '/tmp/self_orchestration',
+      ),
+      items: [
+        BacklogItemRecord(
+          id: 1,
+          projectId: 1,
+          title: 'Integrate the hub',
+          description: 'Wire every reviewed slice.',
+          status: 'open',
+          priority: 'high',
+          createdAt: '2026-07-23T01:00:00Z',
+          updatedAt: '2026-07-23T01:05:00Z',
+        ),
+      ],
+      documents: [],
+    );
+  }
+}
+
+class FakeNetrunnerExplorerRepository implements NetrunnerExplorerRepository {
+  @override
+  Future<NetrunnerExplorerSnapshot> loadProjectNetrunners(
+    int projectId,
+  ) async => _netrunnerExplorer;
+}
+
+class FakeFixerChatService implements FixerChatService {
+  @override
+  Future<List<FixerThreadRecord>> loadFixerThreads(int projectId) async =>
+      const [
+        FixerThreadRecord(
+          externalId: 'fixer-droid',
+          headline: 'Droid Fixer thread',
+          status: 'history',
+          backend: 'droid',
+          model: 'kimi-k2.7-code',
+          reasoning: 'high',
+          cwd: '/tmp/self_orchestration',
+          lastActivityAt: '2026-07-23T01:00:00Z',
+          transcriptAvailable: true,
+        ),
+      ];
+
+  @override
+  Future<void> createFixerChat(
+    int projectId,
+    FixerChatLaunchRequest request,
+  ) async {}
+}
+
+class FakeNetrunnerThreadRepository implements NetrunnerThreadRepository {
+  @override
+  Future<NetrunnerThreadSnapshot> loadThread(int sessionId) async =>
+      _netrunnerThread;
+
+  @override
+  Future<NetrunnerContinuationResult> sendFollowUp(
+    int sessionId,
+    String message,
+  ) async => const NetrunnerContinuationResult(
+    status: 'started',
+    sessionId: 102,
+    backend: 'codex',
+    externalSessionId: 'netrunner-codex',
+    processId: 4242,
+    message: 'Follow-up started.',
+  );
+}
+
+class FakeSkillsRepository implements SkillsRepository {
+  static const summary = ManagedSkillSummary(
+    name: 'init-fixer',
+    description: 'Initialize a project Fixer.',
+    locations: [
+      SkillLocation(
+        rootId: 'agents',
+        rootLabel: 'Agents',
+        relativePath: '.agents/skills/init-fixer/SKILL.md',
+      ),
+    ],
+    relatedSkills: ['run-netrunner-wave'],
+  );
+
+  @override
+  Future<ProjectSkillsCatalog> loadSkills(int projectId) async =>
+      const ProjectSkillsCatalog(projectName: 'Fixer MCP', skills: [summary]);
+
+  @override
+  Future<ManagedSkillDetail> loadSkill(
+    int projectId,
+    String rootId,
+    String name,
+  ) async => const ManagedSkillDetail(
+    summary: summary,
+    rootId: 'agents',
+    relativePath: '.agents/skills/init-fixer/SKILL.md',
+    content: '# Init Fixer\n\nInitialize the Fixer role.',
+  );
+
+  @override
+  Future<ManagedSkillDetail> updateSkill(
+    int projectId,
+    String name, {
+    required String rootId,
+    required String content,
+  }) => loadSkill(projectId, rootId, name);
+}
+
+class FakeOverseerRepository implements OverseerManagerRepository {
+  @override
+  Future<List<OverseerThreadRecord>> loadThreads() async => [
+    OverseerThreadRecord(
+      backend: 'claude',
+      model: 'sonnet',
+      reasoning: 'medium',
+      spawnCwd: '/tmp/self_orchestration',
+      origin: 'claude_session_log',
+      startedAt: DateTime.parse('2026-07-23T00:00:00Z'),
+      lastActivityAt: DateTime.parse('2026-07-23T01:00:00Z'),
+      externalSessionId: 'overseer-claude',
+      preview: 'Architecture review',
+    ),
+  ];
+
+  @override
+  Future<OverseerLaunchPlanRecord> createOverseer(
+    OverseerLaunchRequest request,
+  ) async => _overseerPlan;
+
+  @override
+  Future<OverseerLaunchPlanRecord> resumeOverseer(
+    OverseerThreadRecord thread,
+  ) async => _overseerPlan;
+}
+
+class FakeMissionControlRepository implements MissionControlRepository {
+  @override
+  Future<MissionControlWavesSnapshot> loadWaves(int projectId) async =>
+      MissionControlWavesSnapshot.fromJson(_missionControlPayload);
+
+  @override
+  Future<void> runWaveAction(int projectId, int waveId, String action) async {}
+}
 
 class FakeDashboardRepository implements DashboardRepository {
   @override
@@ -198,6 +360,8 @@ final _home = HomeSnapshot(
       autonomous: null,
       hasPendingReview: true,
       hasActiveWorkers: true,
+      activeWaveCount: 1,
+      lastActivityAt: '2026-07-23T01:00:00Z',
     ),
   ],
   activeWorkers: [
@@ -245,6 +409,8 @@ final _project = ProjectWorkspaceSnapshot(
       hasRunning: true,
       processes: [],
     ),
+    activeWaveCount: 1,
+    totalWaveCount: 1,
   ),
   autonomous: const AutonomousStatusRecord(
     projectId: 1,
@@ -283,6 +449,23 @@ final _project = ProjectWorkspaceSnapshot(
     targetedPendingProposalCount: 1,
     untargetedPendingProposalCount: 0,
   ),
+  documentsTree: const ProjectDocumentsSnapshot(
+    projectName: 'Fixer MCP',
+    totalDocs: 1,
+    roots: [
+      HubDocument(
+        id: 11,
+        title: 'Codex Hub Desktop Migration Brief',
+        docType: 'architecture',
+        level: 0,
+        slug: 'hub-migration',
+        path: 'fixer-mcp/hub-migration',
+        status: 'current',
+        content: '# Hub migration\n\nProvider-neutral composition.',
+      ),
+    ],
+  ),
+  waveGroups: [_activeWave],
   netrunners: const [
     NetrunnerSummaryRecord(
       id: 102,
@@ -369,6 +552,46 @@ final _project = ProjectWorkspaceSnapshot(
     transcriptAvailability: 'metadata_only',
     residualRisk: 'metadata only',
   ),
+);
+
+const _activeWave = NetrunnerWaveGroupRecord(
+  waveId: 145,
+  waveIdentity: 'wave-145',
+  status: 'running',
+  createdAt: '2026-07-23T00:30:00Z',
+  updatedAt: '2026-07-23T01:00:00Z',
+  launchedAt: '2026-07-23T00:35:00Z',
+  completedAt: '',
+  workerCount: 1,
+  reviewerCount: 0,
+  manualCount: 0,
+  sessions: [_explorerSession],
+);
+
+const _explorerSession = NetrunnerExplorerRecord(
+  id: 102,
+  localId: 3,
+  projectId: 1,
+  waveId: 145,
+  role: 'netrunner',
+  kind: 'worker',
+  headline: 'Flutter App Shell for the Fixer MCP GUI.',
+  taskPreview: 'Bridge-backed operator shell',
+  status: 'in_progress',
+  membershipStatus: 'running',
+  backend: 'codex',
+  model: 'gpt-5.4',
+  reasoning: 'medium',
+  writeScope: ['fixer_mcp/dashboard_app'],
+  createdAt: '2026-07-23T00:30:00Z',
+  updatedAt: '2026-07-23T01:00:00Z',
+  launchedAt: '2026-07-23T00:35:00Z',
+  completedAt: '',
+);
+
+const _netrunnerExplorer = NetrunnerExplorerSnapshot(
+  waveGroups: [_activeWave],
+  ungroupedSessions: [],
 );
 
 final _detail = NetrunnerDetailSnapshot(
@@ -467,6 +690,43 @@ final _detail = NetrunnerDetailSnapshot(
   ),
 );
 
+const _netrunnerThread = NetrunnerThreadSnapshot(
+  sessionId: 102,
+  localId: 3,
+  projectId: 1,
+  status: 'in_progress',
+  backend: 'codex',
+  model: 'gpt-5.4',
+  reasoning: 'medium',
+  externalSessionId: 'netrunner-codex',
+  launchState: 'launched',
+  transcriptAvailability: 'available',
+  transcriptPath: '/tmp/netrunner.jsonl',
+  messages: [
+    NetrunnerThreadMessageRecord(
+      id: 'message-1',
+      role: 'assistant',
+      text: 'Netrunner thread is connected.',
+      createdAt: '2026-07-23T01:00:00Z',
+      source: 'codex_jsonl',
+    ),
+  ],
+  continuation: NetrunnerContinuationCapabilityRecord(
+    supported: true,
+    mode: 'resume',
+    reason: '',
+  ),
+);
+
+const _overseerPlan = OverseerLaunchPlanRecord(
+  mode: 'create',
+  cwd: '/tmp/self_orchestration',
+  backend: 'codex',
+  model: 'gpt-5.6-luna',
+  reasoning: 'high',
+  command: ['codex'],
+);
+
 const _threadMessages = ThreadMessagesSnapshot(
   threadId: '019fixer',
   transcriptAvailable: true,
@@ -535,8 +795,66 @@ const _olderThreadMessages = ThreadMessagesSnapshot(
   ],
 );
 
+final _missionControlPayload = <String, dynamic>{
+  'project_id': 1,
+  'generated_at': '2026-07-29T12:00:00Z',
+  'freshness': {
+    'state': 'fresh',
+    'stale': false,
+    'source_updated_at': '2026-07-29T11:59:30Z',
+    'age_seconds': 30,
+    'stale_after_seconds': 300,
+  },
+  'waves': [
+    {
+      'wave_id': 145,
+      'phase': 'implementation',
+      'legacy_status': 'in_progress',
+      'operator_state': 'workers_running',
+      'label': 'Implementation workers running',
+      'next_action': 'wait',
+      'gate_state': 'implementation',
+      'control_state': 'active',
+      'failure_policy_state': 'passed',
+      'updated_at': '2026-07-29T11:59:30Z',
+      'worker_counts': {'total': 1, 'active': 1},
+      'review': {'state': 'not_started'},
+      'acceptance': {'state': 'not_started'},
+      'repair': {'state': 'none', 'attempt_count': 0},
+      'workers': [
+        {
+          'worker_id': 613,
+          'session_id': 517,
+          'local_session_id': 3,
+          'status': 'running',
+          'backend': 'codex',
+          'model': 'gpt-5.6-sol',
+          'reasoning': 'high',
+        },
+      ],
+      'action_capabilities': <String, dynamic>{},
+    },
+  ],
+};
+
+Widget _testDashboard() => FixerDashboardApp(
+  repository: FakeDashboardRepository(),
+  backlogRepository: FakeBacklogRepository(),
+  netrunnerExplorerRepository: FakeNetrunnerExplorerRepository(),
+  fixerChatService: FakeFixerChatService(),
+  netrunnerThreadRepository: FakeNetrunnerThreadRepository(),
+  skillsRepository: FakeSkillsRepository(),
+  overseerRepository: FakeOverseerRepository(),
+  missionControlRepository: FakeMissionControlRepository(),
+);
+
 void main() {
-  testWidgets('renders project workspace and opens netrunner detail', (
+  setUp(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    VisibilityDetectorController.instance.updateInterval = Duration.zero;
+  });
+
+  testWidgets('wires provider-neutral home, Overseers, and Skills Manager', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 1200);
@@ -544,32 +862,80 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      FixerDashboardApp(repository: FakeDashboardRepository()),
-    );
+    await tester.pumpWidget(_testDashboard());
     await tester.pumpAndSettle();
 
-    expect(find.text('Codex Hub'), findsOneWidget);
+    expect(find.text('Fixer Studio'), findsOneWidget);
     expect(find.text('Projects'), findsOneWidget);
-    expect(find.text('Overseer'), findsOneWidget);
+    expect(find.text('Overseers'), findsOneWidget);
+    expect(find.text('Architecture review'), findsOneWidget);
+    expect(find.textContaining('active wave'), findsOneWidget);
 
-    await tester.tap(find.text('#3 Flutter App Shell'));
+    await tester.tap(find.byTooltip('Skills Manager'));
+    await tester.pumpAndSettle();
+    expect(find.text('Skills Manager'), findsOneWidget);
+    expect(find.text('init-fixer'), findsWidgets);
+  });
+
+  testWidgets('wires backlog, document tree, waves, and Fixer chat routes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_testDashboard());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fixer MCP'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Project'), findsOneWidget);
-    expect(find.text('Overview'), findsOneWidget);
-    expect(
-      find.text('#3 Flutter App Shell for the Fixer MCP GUI.'),
-      findsOneWidget,
-    );
+    expect(find.text('Active waves'), findsWidgets);
+    expect(find.text('wave-145'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(Tab, 'Mission Control'));
+    await tester.pumpAndSettle();
+    expect(find.text('Wave #145'), findsWidgets);
+    expect(find.textContaining('gpt-5.6-sol'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(Tab, 'Backlog'));
+    await tester.pumpAndSettle();
+    expect(find.text('Integrate the hub'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(Tab, 'Docs'));
     await tester.pumpAndSettle();
-    expect(find.text('Codex Hub Desktop Migration Brief'), findsOneWidget);
+    expect(find.text('Codex Hub Desktop Migration Brief'), findsWidgets);
 
     await tester.tap(find.widgetWithText(Tab, 'Netrunners'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('#3 Flutter App Shell for the Fixer MCP GUI.'));
+    expect(find.textContaining('Wave 145'), findsWidgets);
+    expect(
+      find.textContaining('Flutter App Shell for the Fixer MCP GUI.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.widgetWithText(Tab, 'Fixer Chat'));
+    await tester.pumpAndSettle();
+    expect(find.text('Create new Fixer chat'), findsOneWidget);
+    expect(find.text('Droid Fixer thread'), findsOneWidget);
+    expect(find.textContaining('kimi-k2.7-code'), findsOneWidget);
+  });
+
+  testWidgets('opens a wave-grouped Netrunner and mounts its provider thread', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(_testDashboard());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fixer MCP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(Tab, 'Netrunners'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('netrunner-session-102')));
     await tester.pumpAndSettle();
 
     expect(find.text('Netrunner #3'), findsOneWidget);
@@ -577,63 +943,16 @@ void main() {
       find.byKey(const ValueKey('session-task-description')),
       findsOneWidget,
     );
-    expect(find.text('Build the Flutter operator shell'), findsWidgets);
-    expect(find.text('Summary'), findsOneWidget);
-    expect(find.text('Report'), findsOneWidget);
     expect(find.text('Workspace rail'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(Tab, 'Thread'));
+    await tester.pumpAndSettle();
+    expect(find.text('Netrunner thread is connected.'), findsOneWidget);
+    expect(find.text('codex'), findsWidgets);
 
     await tester.tap(find.widgetWithText(Tab, 'Report'));
     await tester.pumpAndSettle();
     expect(find.text('Files changed'), findsOneWidget);
     expect(find.text('Residual risks'), findsOneWidget);
-
-    await tester.tap(find.widgetWithText(Tab, 'Proposals'));
-    await tester.pumpAndSettle();
-    expect(find.text('Approve'), findsOneWidget);
-    expect(find.text('Reject'), findsOneWidget);
-  });
-
-  testWidgets('loads thread messages in the Fixer Chat tab', (tester) async {
-    tester.view.physicalSize = const Size(1600, 1200);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      FixerDashboardApp(repository: FakeDashboardRepository()),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('#3 Flutter App Shell'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.widgetWithText(Tab, 'Fixer Chat'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Please inspect the migration.'), findsOneWidget);
-    expect(
-      find.text('Internal context: AGENTS.md and environment'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Called fixer_mcp.get_project_handoff({})'),
-      findsOneWidget,
-    );
-    expect(find.byType(MarkdownWidget), findsWidgets);
-    expect(find.text('Message this thread'), findsOneWidget);
-
-    await tester.enterText(find.byType(TextField).last, 'Continue live');
-    await tester.tap(find.byIcon(Icons.send));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(find.text('Continue live'), findsOneWidget);
-    expect(find.text('Live assistant text'), findsOneWidget);
-
-    await tester.tap(find.text('Earlier Fixer thread'));
-    await tester.pumpAndSettle();
-    expect(find.text('Earlier thread context is visible.'), findsOneWidget);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(milliseconds: 600));
   });
 }

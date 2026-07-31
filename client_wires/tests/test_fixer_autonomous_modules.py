@@ -69,6 +69,47 @@ class FixerAutonomousModuleTests(unittest.TestCase):
 
         self.assertEqual(session_id, "droid-session-123")
 
+    def test_transcript_module_does_not_default_unlaunched_manual_session_to_codex(self) -> None:
+        capability = fixer_autonomous_transcripts._provider_thread_capability("")
+
+        self.assertEqual(capability.backend, "")
+        self.assertEqual(capability.continuation_mode, "awaiting_backend")
+        self.assertFalse(capability.continuation_supported)
+
+    def test_transcript_module_reports_provider_capabilities_truthfully(self) -> None:
+        codex = fixer_autonomous_transcripts._provider_thread_capability("codex")
+        kimi = fixer_autonomous_transcripts._provider_thread_capability("kimi_cli")
+
+        self.assertTrue(codex.continuation_supported)
+        self.assertEqual(codex.transcript_availability, "jsonl")
+        self.assertEqual(kimi.backend, "kimi-code")
+        self.assertFalse(kimi.continuation_supported)
+        self.assertIn("MCP config", kimi.unsupported_reason)
+
+    def test_transcript_module_normalizes_codex_and_droid_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript_path = Path(tmp) / "thread.jsonl"
+            transcript_path.write_text(
+                "\n".join(
+                    [
+                        '{"timestamp":"2026-07-23T10:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"Inspect this failure"}}',
+                        '{"timestamp":"2026-07-23T10:00:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I found the cause."}]}}',
+                        '{"type":"tool_call","payload":{"type":"tool_call","name":"exec"}}',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            messages = fixer_autonomous_transcripts._load_provider_thread_messages(
+                "codex",
+                transcript_path,
+            )
+
+        self.assertEqual([message.role for message in messages], ["user", "assistant"])
+        self.assertEqual(messages[0].text, "Inspect this failure")
+        self.assertEqual(messages[1].text, "I found the cause.")
+
     def test_transcript_module_extracts_antigravity_conversation_id_from_cli_line(self) -> None:
         conversation_id = fixer_autonomous_transcripts._extract_antigravity_conversation_id_from_line(
             "I0702 printmode.go:179] Print mode: conversation=cb18f692-f4a9-4895-9509-d093dd911437, sending message",

@@ -113,7 +113,7 @@ function normalizeModel(raw) {
   return model.length > 0 ? model : null;
 }
 
-const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "ultra"]);
 
 function normalizeReasoningEffort(raw) {
   if (typeof raw !== "string") return null;

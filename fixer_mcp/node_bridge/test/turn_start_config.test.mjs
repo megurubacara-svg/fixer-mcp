@@ -17,6 +17,16 @@ test("bridge defaults to GPT-5.6 Luna with xhigh reasoning", () => {
   assert.match(source, /normalizeReasoningEffort\(DEFAULT_REASONING_EFFORT\) \?\? "xhigh"/);
 });
 
+test("bridge preserves ultra as a first-class reasoning effort", () => {
+  const source = fs.readFileSync(
+    path.resolve(__dirname, "../index.mjs"),
+    "utf8",
+  );
+
+  assert.match(source, /REASONING_EFFORTS = new Set\(\[[^\]]*"ultra"[^\]]*\]\)/);
+  assert.doesNotMatch(source, /normalized === "ultra"[\s\S]{0,160}return "xhigh"/);
+});
+
 test("turn/start only applies MCP allowlist when explicitly requested", () => {
   const source = fs.readFileSync(
     path.resolve(__dirname, "../index.mjs"),

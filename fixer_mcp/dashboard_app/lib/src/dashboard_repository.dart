@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'dashboard_models.dart';
 import 'dashboard_runtime_client.dart';
+import 'hub/fixer_chat/fixer_chat_models.dart';
+import 'hub/fixer_chat/fixer_chat_service.dart';
 
 abstract class DashboardRepository {
   Future<HomeSnapshot> loadHomeSnapshot();
@@ -64,11 +66,13 @@ class BridgeDashboardRepository implements DashboardRepository {
     final responses = await Future.wait([
       _runtimeClient.readDashboardJson('/api/projects/$projectId/overview'),
       _runtimeClient.readDashboardJson('/api/projects/$projectId/docs'),
+      _runtimeClient.readDashboardJson('/api/projects/$projectId/docs/tree'),
     ]);
     return ProjectWorkspaceSnapshot.fromJson(
       responses[0],
       responses[1],
       <String, dynamic>{},
+      responses[2],
     );
   }
 
@@ -200,5 +204,38 @@ class BridgeDashboardRepository implements DashboardRepository {
       return Map<String, dynamic>.from(sessionPayload);
     }
     throw StateError('Unexpected action session payload');
+  }
+}
+
+class BridgeFixerChatService implements FixerChatService {
+  BridgeFixerChatService({DashboardRuntimeClient? runtimeClient})
+    : _runtimeClient = runtimeClient ?? DashboardRuntimeClient();
+
+  final DashboardRuntimeClient _runtimeClient;
+
+  @override
+  Future<List<FixerThreadRecord>> loadFixerThreads(int projectId) async {
+    final payload = await _runtimeClient.readDashboardJson(
+      '/api/projects/$projectId/fixer-threads',
+    );
+    final rawThreads = payload['threads'];
+    if (rawThreads is! List) return const <FixerThreadRecord>[];
+    return rawThreads
+        .whereType<Map>()
+        .map(
+          (item) => FixerThreadRecord.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> createFixerChat(
+    int projectId,
+    FixerChatLaunchRequest request,
+  ) async {
+    await _runtimeClient.postDashboardJson(
+      '/api/actions/projects/$projectId/fixer-chats',
+      request.toJson(),
+    );
   }
 }

@@ -25,7 +25,7 @@ This is still a normal locked `fixer` role internally, but it is bound to an int
 
 ## Routing
 
-- Use `$run-one-netrunner-task` for one bounded research or automation worker.
+- Use `$run-netrunner-wave` for every bounded research or automation worker, including a one-worker wave.
 - Assign task-specific MCP servers before launching workers.
 - Keep outputs under the scratch workspace unless the Architect names another destination.
 - Use `$review-netrunner-session` for completed-session review and closure.
@@ -34,8 +34,7 @@ This is still a normal locked `fixer` role internally, but it is bound to an int
 ## Constraints
 
 - Delegate implementation, research, and automation execution to Netrunners.
-- Use `launch_and_wait_netrunner` for one live Fixer-managed worker.
-- Run workers serially in the scratch workspace; parallel waves need a clean Git project root, which the scratch workspace does not guarantee.
+- Prepare a clean Git base when workers are needed, then launch them only through waves. Never substitute a serial autonomous launcher.
 
 ## Worker Model Policy
 

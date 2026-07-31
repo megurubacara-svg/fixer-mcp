@@ -23,7 +23,7 @@ The Overseer sees projects across the workspace, answers high-level questions, r
 
 - Route project implementation through Fixers, usually with `launch_and_wait_fixers`.
 - Use `$bridge-overseer-fixer` behavior when a Fixer is invoked through the durable chat bridge.
-- Recommend `$run-one-netrunner-task` for one bounded implementation slice handled by a Fixer.
+- Require `$run-netrunner-wave` for every Fixer-managed Netrunner launch, including a one-worker wave.
 - Recommend `$review-netrunner-session` when completed worker output needs Fixer review.
 - Recommend `$run-manual-netrunner` only when the Architect explicitly wants the old separate-terminal worker path.
 

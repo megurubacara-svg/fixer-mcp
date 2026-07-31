@@ -67,4 +67,4 @@ For routine out-of-band status updates, use `fixer_mcp.send_operator_telegram_no
 ## Constraints
 
 - In locked Netrunner mode, do not try to use Fixer review, task creation, or doc-admin tools.
-- Current-thread Fixer-managed execution belongs to `$run-one-netrunner-task`.
+- Autonomous Fixer-managed execution belongs exclusively to `$run-netrunner-wave`; this skill remains only for an Architect-explicit separate-terminal manual session.

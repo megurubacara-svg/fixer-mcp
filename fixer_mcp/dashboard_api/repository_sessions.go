@@ -5,23 +5,389 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-func (r *Repository) ProjectNetrunners(ctx context.Context, projectID int, statuses []string) (ProjectNetrunnersResponse, error) {
+const (
+	netrunnerKindWorker   = "worker"
+	netrunnerKindReviewer = "reviewer"
+	netrunnerKindManual   = "manual"
+	netrunnerKindLegacy   = "legacy"
+)
+
+// ProjectNetrunnerGroupsResponse keeps the legacy flat sessions collection for
+// existing clients while exposing the wave-first explorer shape to new ones.
+type ProjectNetrunnerGroupsResponse struct {
+	Project           ProjectHeader              `json:"project"`
+	Statuses          []string                   `json:"statuses,omitempty"`
+	WaveGroups        []NetrunnerWaveGroup       `json:"wave_groups"`
+	UngroupedSessions []NetrunnerExplorerSession `json:"ungrouped_sessions"`
+	Sessions          []NetrunnerSummary         `json:"sessions"`
+}
+
+type NetrunnerWaveGroup struct {
+	WaveID        int                        `json:"wave_id"`
+	WaveIdentity  string                     `json:"wave_identity"`
+	Status        string                     `json:"status"`
+	CreatedAt     string                     `json:"created_at,omitempty"`
+	UpdatedAt     string                     `json:"updated_at,omitempty"`
+	LaunchedAt    string                     `json:"launched_at,omitempty"`
+	CompletedAt   string                     `json:"completed_at,omitempty"`
+	WorkerCount   int                        `json:"worker_count"`
+	ReviewerCount int                        `json:"reviewer_count"`
+	ManualCount   int                        `json:"manual_count"`
+	Sessions      []NetrunnerExplorerSession `json:"sessions"`
+}
+
+type NetrunnerExplorerSession struct {
+	ID               int      `json:"id"`
+	LocalID          int      `json:"local_id"`
+	ProjectID        int      `json:"project_id"`
+	WaveID           int      `json:"wave_id,omitempty"`
+	Role             string   `json:"role"`
+	Kind             string   `json:"kind"`
+	Headline         string   `json:"headline"`
+	TaskPreview      string   `json:"task_preview"`
+	Status           string   `json:"status"`
+	MembershipStatus string   `json:"membership_status,omitempty"`
+	Backend          string   `json:"backend,omitempty"`
+	Model            string   `json:"model,omitempty"`
+	Reasoning        string   `json:"reasoning,omitempty"`
+	WriteScope       []string `json:"write_scope"`
+	CreatedAt        string   `json:"created_at,omitempty"`
+	UpdatedAt        string   `json:"updated_at,omitempty"`
+	LaunchedAt       string   `json:"launched_at,omitempty"`
+	CompletedAt      string   `json:"completed_at,omitempty"`
+}
+
+type netrunnerSessionLink struct {
+	WaveID           int
+	Kind             string
+	MembershipStatus string
+	CreatedAt        string
+	UpdatedAt        string
+	LaunchedAt       string
+	CompletedAt      string
+}
+
+type netrunnerWaveMetadata struct {
+	WaveID      int
+	Status      string
+	CreatedAt   string
+	UpdatedAt   string
+	LaunchedAt  string
+	CompletedAt string
+}
+
+func (r *Repository) ProjectNetrunners(ctx context.Context, projectID int, statuses []string) (ProjectNetrunnerGroupsResponse, error) {
 	project, err := r.requireProject(ctx, projectID)
 	if err != nil {
-		return ProjectNetrunnersResponse{}, err
+		return ProjectNetrunnerGroupsResponse{}, err
 	}
 	sessions, _, _, err := r.loadSessionSummaries(ctx, projectID, statuses)
 	if err != nil {
-		return ProjectNetrunnersResponse{}, err
+		return ProjectNetrunnerGroupsResponse{}, err
 	}
-	return ProjectNetrunnersResponse{
-		Project:  ProjectHeader{ID: project.ID, Name: project.Name, CWD: project.CWD},
-		Statuses: statuses,
-		Sessions: sessions,
+	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].ID > sessions[j].ID })
+	waveGroups, ungrouped, err := r.groupNetrunnerSessions(ctx, projectID, sessions)
+	if err != nil {
+		return ProjectNetrunnerGroupsResponse{}, err
+	}
+	return ProjectNetrunnerGroupsResponse{
+		Project:           ProjectHeader{ID: project.ID, Name: project.Name, CWD: project.CWD},
+		Statuses:          normalizeStatuses(statuses),
+		WaveGroups:        waveGroups,
+		UngroupedSessions: ungrouped,
+		Sessions:          sessions,
 	}, nil
+}
+
+func (r *Repository) groupNetrunnerSessions(ctx context.Context, projectID int, summaries []NetrunnerSummary) ([]NetrunnerWaveGroup, []NetrunnerExplorerSession, error) {
+	links, err := r.loadNetrunnerSessionLinks(ctx, projectID, summaries)
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata, err := r.loadNetrunnerWaveMetadata(ctx, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	groupsByID := map[int]*NetrunnerWaveGroup{}
+	ungrouped := []NetrunnerExplorerSession{}
+	for _, summary := range summaries {
+		link := links[summary.ID]
+		item := explorerSessionFromSummary(summary, link)
+		if link.WaveID <= 0 {
+			ungrouped = append(ungrouped, item)
+			continue
+		}
+		group := groupsByID[link.WaveID]
+		if group == nil {
+			wave := metadata[link.WaveID]
+			group = &NetrunnerWaveGroup{
+				WaveID:       link.WaveID,
+				WaveIdentity: fmt.Sprintf("wave-%d", link.WaveID),
+				Status:       wave.Status,
+				CreatedAt:    wave.CreatedAt,
+				UpdatedAt:    wave.UpdatedAt,
+				LaunchedAt:   wave.LaunchedAt,
+				CompletedAt:  wave.CompletedAt,
+				Sessions:     []NetrunnerExplorerSession{},
+			}
+			groupsByID[link.WaveID] = group
+		}
+		group.Sessions = append(group.Sessions, item)
+		switch item.Kind {
+		case netrunnerKindWorker:
+			group.WorkerCount++
+		case netrunnerKindReviewer:
+			group.ReviewerCount++
+		case netrunnerKindManual:
+			group.ManualCount++
+		}
+	}
+
+	groups := make([]NetrunnerWaveGroup, 0, len(groupsByID))
+	for _, group := range groupsByID {
+		sort.SliceStable(group.Sessions, func(i, j int) bool {
+			return group.Sessions[i].ID > group.Sessions[j].ID
+		})
+		groups = append(groups, *group)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].CreatedAt != groups[j].CreatedAt {
+			return groups[i].CreatedAt > groups[j].CreatedAt
+		}
+		return groups[i].WaveID > groups[j].WaveID
+	})
+	sort.SliceStable(ungrouped, func(i, j int) bool { return ungrouped[i].ID > ungrouped[j].ID })
+	return groups, ungrouped, nil
+}
+
+func explorerSessionFromSummary(summary NetrunnerSummary, link netrunnerSessionLink) NetrunnerExplorerSession {
+	kind := link.Kind
+	if kind == "" {
+		kind = netrunnerKindLegacy
+	}
+	item := NetrunnerExplorerSession{
+		ID:               summary.ID,
+		LocalID:          summary.LocalID,
+		ProjectID:        summary.ProjectID,
+		WaveID:           link.WaveID,
+		Role:             "netrunner",
+		Kind:             kind,
+		Headline:         summary.Headline,
+		TaskPreview:      summary.TaskPreview,
+		Status:           summary.Status,
+		MembershipStatus: link.MembershipStatus,
+		WriteScope:       summary.WriteScope,
+		CreatedAt:        link.CreatedAt,
+		UpdatedAt:        link.UpdatedAt,
+		LaunchedAt:       link.LaunchedAt,
+		CompletedAt:      link.CompletedAt,
+	}
+	// A configured backend is not evidence that a worker was launched. Keep
+	// launch details hidden until the wave worker or worker_process has a start.
+	if link.LaunchedAt != "" {
+		item.Backend = summary.Backend
+		item.Model = summary.Model
+		item.Reasoning = summary.Reasoning
+	}
+	return item
+}
+
+func (r *Repository) loadNetrunnerSessionLinks(ctx context.Context, projectID int, summaries []NetrunnerSummary) (map[int]netrunnerSessionLink, error) {
+	links := make(map[int]netrunnerSessionLink, len(summaries))
+	selected := make(map[int]struct{}, len(summaries))
+	for _, summary := range summaries {
+		selected[summary.ID] = struct{}{}
+		links[summary.ID] = netrunnerSessionLink{Kind: netrunnerKindLegacy}
+	}
+
+	if r.tableExists(ctx, "worker_process") {
+		waveExpression := "0"
+		if r.tableHasColumn(ctx, "worker_process", "parallel_wave_id") {
+			waveExpression = "COALESCE(parallel_wave_id, 0)"
+		}
+		originExpression := "''"
+		if r.tableHasColumn(ctx, "worker_process", "launch_origin") {
+			originExpression = "COALESCE(launch_origin, '')"
+		}
+		rows, err := r.db.QueryContext(ctx, fmt.Sprintf(`
+			SELECT session_id, %s, %s, status, started_at, updated_at, COALESCE(stopped_at, '')
+			FROM worker_process
+			WHERE project_id = ?
+			ORDER BY id DESC`, waveExpression, originExpression), projectID)
+		if err != nil {
+			return nil, err
+		}
+		seen := map[int]struct{}{}
+		for rows.Next() {
+			var sessionID, waveID int
+			var origin, status, startedAt, updatedAt, stoppedAt string
+			if err := rows.Scan(&sessionID, &waveID, &origin, &status, &startedAt, &updatedAt, &stoppedAt); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if _, ok := selected[sessionID]; !ok {
+				continue
+			}
+			if _, ok := seen[sessionID]; ok {
+				continue
+			}
+			seen[sessionID] = struct{}{}
+			link := links[sessionID]
+			link.WaveID = waveID
+			link.MembershipStatus = status
+			link.CreatedAt = startedAt
+			link.UpdatedAt = updatedAt
+			link.LaunchedAt = startedAt
+			link.CompletedAt = stoppedAt
+			switch origin {
+			case "parallel-wave-reviewer":
+				link.Kind = netrunnerKindReviewer
+			case "explicit-wait":
+				link.Kind = netrunnerKindManual
+			}
+			links[sessionID] = link
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	if r.sessionHasColumn(ctx, "parallel_wave_id") {
+		rows, err := r.db.QueryContext(ctx, `
+			SELECT id, COALESCE(parallel_wave_id, '')
+			FROM session
+			WHERE project_id = ? AND TRIM(COALESCE(parallel_wave_id, '')) <> ''`, projectID)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var sessionID int
+			var marker string
+			if err := rows.Scan(&sessionID, &marker); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if _, ok := selected[sessionID]; !ok {
+				continue
+			}
+			link := links[sessionID]
+			if strings.HasPrefix(marker, parallelWaveReviewMarkerPrefix) {
+				waveID, err := strconv.Atoi(strings.TrimPrefix(marker, parallelWaveReviewMarkerPrefix))
+				if err == nil && waveID > 0 {
+					link.WaveID = waveID
+					link.Kind = netrunnerKindReviewer
+				}
+			} else if waveID, err := strconv.Atoi(marker); err == nil && waveID > 0 {
+				link.WaveID = waveID
+				if link.Kind == netrunnerKindLegacy {
+					link.Kind = netrunnerKindManual
+				}
+			}
+			links[sessionID] = link
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	if r.tableExists(ctx, "parallel_wave_worker") {
+		rows, err := r.db.QueryContext(ctx, `
+			SELECT session_id, wave_id, status, created_at, updated_at,
+			       COALESCE(launched_at, ''), COALESCE(terminal_at, '')
+			FROM parallel_wave_worker
+			WHERE project_id = ?
+			ORDER BY id DESC`, projectID)
+		if err != nil {
+			return nil, err
+		}
+		seen := map[int]struct{}{}
+		for rows.Next() {
+			var sessionID, waveID int
+			var status, createdAt, updatedAt, launchedAt, terminalAt string
+			if err := rows.Scan(&sessionID, &waveID, &status, &createdAt, &updatedAt, &launchedAt, &terminalAt); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if _, ok := selected[sessionID]; !ok {
+				continue
+			}
+			if _, ok := seen[sessionID]; ok {
+				continue
+			}
+			seen[sessionID] = struct{}{}
+			links[sessionID] = netrunnerSessionLink{
+				WaveID:           waveID,
+				Kind:             netrunnerKindWorker,
+				MembershipStatus: status,
+				CreatedAt:        createdAt,
+				UpdatedAt:        updatedAt,
+				LaunchedAt:       launchedAt,
+				CompletedAt:      terminalAt,
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return links, nil
+}
+
+func (r *Repository) loadNetrunnerWaveMetadata(ctx context.Context, projectID int) (map[int]netrunnerWaveMetadata, error) {
+	waves := map[int]netrunnerWaveMetadata{}
+	if !r.tableExists(ctx, "parallel_wave") {
+		return waves, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, status, created_at, updated_at, COALESCE(launched_at, ''), COALESCE(completed_at, '')
+		FROM parallel_wave
+		WHERE project_id = ?`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var wave netrunnerWaveMetadata
+		if err := rows.Scan(&wave.WaveID, &wave.Status, &wave.CreatedAt, &wave.UpdatedAt, &wave.LaunchedAt, &wave.CompletedAt); err != nil {
+			return nil, err
+		}
+		waves[wave.WaveID] = wave
+	}
+	return waves, rows.Err()
+}
+
+func (r *Repository) ArchitectOrders(ctx context.Context) (ArchitectOrdersResponse, error) {
+	projectMap, projectOrder, err := r.loadProjects(ctx)
+	if err != nil {
+		return ArchitectOrdersResponse{}, err
+	}
+	sessions, _, _, err := r.loadSessionSummaries(ctx, 0, nil)
+	if err != nil {
+		return ArchitectOrdersResponse{}, err
+	}
+	projects := make([]ProjectBinding, 0, len(projectOrder))
+	for _, projectID := range projectOrder {
+		project := projectMap[projectID]
+		projects = append(projects, ProjectBinding{
+			ID:   project.ID,
+			Name: project.Name,
+			CWD:  project.CWD,
+		})
+	}
+	return ArchitectOrdersResponse{Projects: projects, Sessions: sessions}, nil
 }
 
 func (r *Repository) NetrunnerDetail(ctx context.Context, sessionID int) (NetrunnerDetailResponse, error) {

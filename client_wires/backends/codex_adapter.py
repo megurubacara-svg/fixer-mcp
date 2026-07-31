@@ -9,7 +9,7 @@ from .catalog import load_backend_entry
 _FIXER_MCP_SERVER = "fixer_mcp"
 _FIXER_GATE_SERVER = "fixer_netrunner_gate"
 _FIXER_GATE_TOOLS_TOML = (
-    '["launch_and_wait_netrunner","launch_netrunner_wave","wait_for_netrunner_wave"]'
+    '["launch_netrunner_wave","wait_for_netrunner_wave"]'
 )
 _FIXER_GATE_PROFILE = "netrunner_gate"
 

@@ -28,6 +28,7 @@ FIGMA_CONSOLE_MCP_FALLBACK_HOW_TO = (
     "Use for Figma design-system extraction, creation, and debugging workflows across "
     "components, variables, and layout iteration."
 )
+WIRE_DB_BUSY_TIMEOUT_MS = 30_000
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,13 @@ def _dedupe_link_table(conn: sqlite3.Connection, table_name: str, partition_by: 
 
 
 def _ensure_wire_schema(conn: sqlite3.Connection) -> None:
+    # Schema repair is called by every launcher entrypoint. Give concurrent
+    # Fixer MCP writers a reasonable window to finish instead of failing on a
+    # transient lock, and always finish our own migration transaction before
+    # returning. In particular, callers may prompt for onboarding immediately
+    # afterwards; keeping this transaction open across input() can pin the
+    # whole launcher database indefinitely.
+    conn.execute(f"PRAGMA busy_timeout = {WIRE_DB_BUSY_TIMEOUT_MS}")
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS session_external_link (
@@ -201,6 +209,7 @@ def _ensure_wire_schema(conn: sqlite3.Connection) -> None:
         ON fixer_resume_session_alias(project_id)
         """
     )
+    conn.commit()
 
 
 def _resolve_fixer_db_path(cwd: Path, *, repo_root: Path) -> Path:

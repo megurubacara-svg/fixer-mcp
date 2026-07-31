@@ -1,0 +1,25 @@
+### A client-facing tenant user.
+###
+### The UUID is shared with the corresponding Serverpod Auth Core user so the
+### built-in server-side session token manager can authenticate this record
+### without a second identity mapping table.
+class: ClientUser
+table: client
+serverOnly: true
+fields:
+  id: UuidValue?, defaultPersist=random_v7
+  email: String
+  hashedPassword:
+    type: String
+    column: hashed_password
+  displayName:
+    type: String
+    column: display_name
+  createdAt:
+    type: DateTime
+    column: created_at
+    defaultModel: now
+indexes:
+  client_email_idx:
+    fields: email
+    unique: true

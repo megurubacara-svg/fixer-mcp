@@ -80,6 +80,31 @@ def _latest_fixer_session_id(cwd: Path) -> str:
     return str(summaries[0].session_id)
 
 
+def _spawn_background_process_and_get_pid(session_name: str, command: list[str], cwd: str, env: dict[str, str], log_path: Path | None) -> int:
+    clean_env = env.copy()
+    clean_env.pop("TMUX", None)
+    clean_env.pop("TMUX_PANE", None)
+    
+    out_file = None
+    if log_path:
+        out_file = open(log_path, "a")
+    
+    if out_file:
+        out_file.write(f"[DEBUG] Spawning command: {command}\n")
+        out_file.flush()
+    proc = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=clean_env,
+        stdout=out_file if out_file else subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return int(getattr(proc, "pid", 0) or 0)
+
+
+
 def _fixer_session_id_from_env() -> str | None:
     for env_name in ("CODEX_THREAD_ID", "CODEX_SESSION_ID"):
         value = os.environ.get(env_name, "").strip()
@@ -750,23 +775,18 @@ def launch_netrunner(
         prompt=prompt,
     )
     launch_started_at = time.time()
-    log_handle = log_path.open("a", encoding="utf-8")
-    process = subprocess.Popen(
+    session_name = f"netrunner_{local_session_id}"
+    worker_pid = _spawn_background_process_and_get_pid(
+        session_name,
         command,
-        cwd=str(cwd),
-        env=env,
-        stdout=log_handle,
-        stderr=log_handle,
-        start_new_session=True,
-        text=True,
+        str(cwd),
+        env,
+        log_path
     )
-    log_handle.close()
-    if process.poll() is not None and process.returncode not in (0, None):
-        raise RuntimeError(f"Failed to launch headless netrunner for session {local_session_id}.")
     if worker_metadata_path is not None:
         _write_worker_metadata(
             worker_metadata_path,
-            worker_pid=process.pid,
+            worker_pid=worker_pid,
             headless_log_path=log_path,
             backend=launch_selection.backend,
             session_id=local_session_id,
@@ -805,6 +825,63 @@ def launch_netrunner(
         f"(backend={launch_selection.backend} external_session_id={new_session_id or 'pending-detect'})"
     )
     return new_session_id
+
+
+def _require_wave_reviewer_link(
+    conn: sqlite3.Connection,
+    selected_session: fixer_wire.SessionRow,
+    wave_id: int,
+) -> None:
+    if wave_id <= 0:
+        raise RuntimeError("wave_id must be positive for a wave reviewer launch.")
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(parallel_wave_id, '') FROM session WHERE id = ?",
+            (selected_session.global_session_id,),
+        ).fetchone()
+    except sqlite3.OperationalError as err:
+        raise RuntimeError("Wave reviewer launch requires session.parallel_wave_id.") from err
+    expected_marker = f"parallel-wave-review:{wave_id}"
+    actual_marker = str(row[0] if row else "").strip()
+    if actual_marker != expected_marker:
+        raise RuntimeError(
+            f"Session {selected_session.session_id} is not the reviewer for wave {wave_id}; "
+            f"expected {expected_marker!r}, got {actual_marker!r}."
+        )
+
+
+def launch_wave_reviewer(
+    cwd: Path,
+    local_session_id: int,
+    wave_id: int,
+    backend: str | None = None,
+    model: str | None = None,
+    reasoning: str | None = None,
+    headless_log_path: Path | None = None,
+    worker_metadata_path: Path | None = None,
+) -> str | None:
+    db_path = fixer_wire._resolve_fixer_db_path(cwd)
+    conn = sqlite3.connect(db_path)
+    try:
+        fixer_wire._ensure_wire_schema(conn)
+        project_id = fixer_wire._resolve_project_id(conn, cwd)
+        sessions = fixer_wire._load_session_rows(conn, project_id)
+        selected_session = next((row for row in sessions if row.session_id == local_session_id), None)
+        if selected_session is None:
+            raise RuntimeError(f"Session {local_session_id} is not available for {cwd}.")
+        _require_wave_reviewer_link(conn, selected_session, wave_id)
+    finally:
+        conn.close()
+    return launch_netrunner(
+        cwd,
+        local_session_id,
+        backend=backend,
+        model=model,
+        reasoning=reasoning,
+        headless_log_path=headless_log_path,
+        worker_metadata_path=worker_metadata_path,
+        suppress_autonomous_wake=True,
+    )
 
 
 def _wave_headless_netrunner_log_path(
@@ -913,23 +990,18 @@ def launch_wave_netrunner_worker(
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     launch_started_at = time.time()
-    log_handle = log_path.open("a", encoding="utf-8")
-    process = subprocess.Popen(
+    session_name = f"wave_netrunner_{normalized_session_id}"
+    worker_pid = _spawn_background_process_and_get_pid(
+        session_name,
         plan.command,
-        cwd=str(plan.popen_cwd),
-        env=plan.env,
-        stdout=log_handle,
-        stderr=log_handle,
-        start_new_session=True,
-        text=True,
+        str(plan.popen_cwd),
+        plan.env,
+        log_path
     )
-    log_handle.close()
-    if process.poll() is not None and process.returncode not in (0, None):
-        raise RuntimeError(f"Failed to launch wave netrunner for session {normalized_session_id}.")
 
     _write_worker_metadata(
         metadata_path,
-        worker_pid=process.pid,
+        worker_pid=worker_pid,
         headless_log_path=log_path,
         backend=launch_selection.backend,
         session_id=normalized_session_id,
@@ -967,14 +1039,13 @@ def launch_overseer_fixer(cwd: Path, fixer_session_id: str | None = None) -> str
     resolved_session_id = _resolve_overseer_fixer_session_id(cwd, fixer_session_id)
     prompt = _build_overseer_directed_fixer_prompt()
     command, env = _build_fixer_resume_command(cwd, resolved_session_id, prompt)
-    subprocess.Popen(
+    session_name = f"overseer_fixer_{resolved_session_id}"
+    _spawn_background_process_and_get_pid(
+        session_name,
         command,
-        cwd=str(cwd),
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
+        str(cwd),
+        env,
+        None
     )
     print(f"[fixer-autonomous] launched overseer-directed fixer session {resolved_session_id}")
     return resolved_session_id
@@ -1001,14 +1072,13 @@ def resume_fixer(cwd: Path, completed_session_id: int, summary: str) -> None:
 
     prompt = _build_autonomous_fixer_resume_prompt(completed_session_id, summary)
     command, env = _build_fixer_resume_command(cwd, fixer_session_id, prompt)
-    subprocess.Popen(
+    session_name = f"resume_fixer_{fixer_session_id}"
+    _spawn_background_process_and_get_pid(
+        session_name,
         command,
-        cwd=str(cwd),
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
+        str(cwd),
+        env,
+        None
     )
     print(
         f"[fixer-autonomous] resumed fixer session {fixer_session_id} "
@@ -1017,24 +1087,22 @@ def resume_fixer(cwd: Path, completed_session_id: int, summary: str) -> None:
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Serial autonomous Fixer helpers.")
+    parser = argparse.ArgumentParser(description="Wave-only autonomous Fixer helpers.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     register_parser = subparsers.add_parser("register-fixer")
     register_parser.add_argument("--cwd", required=True)
     register_parser.add_argument("--fixer-session-id")
 
-    launch_parser = subparsers.add_parser("launch-netrunner")
-    launch_parser.add_argument("--cwd", required=True)
-    launch_parser.add_argument("--session-id", type=int, required=True)
-    launch_parser.add_argument("--fixer-session-id")
-    launch_parser.add_argument("--backend")
-    launch_parser.add_argument("--model")
-    launch_parser.add_argument("--reasoning")
-    launch_parser.add_argument("--headless-log-path")
-    launch_parser.add_argument("--worker-metadata-path")
-    launch_parser.add_argument("--suppress-autonomous-wake", action="store_true")
-    launch_parser.add_argument("--playwright-runtime-mode")
+    reviewer_parser = subparsers.add_parser("launch-wave-reviewer")
+    reviewer_parser.add_argument("--cwd", required=True)
+    reviewer_parser.add_argument("--session-id", type=int, required=True)
+    reviewer_parser.add_argument("--wave-id", type=int, required=True)
+    reviewer_parser.add_argument("--backend")
+    reviewer_parser.add_argument("--model")
+    reviewer_parser.add_argument("--reasoning")
+    reviewer_parser.add_argument("--headless-log-path")
+    reviewer_parser.add_argument("--worker-metadata-path")
 
     wave_worker_parser = subparsers.add_parser("launch-wave-worker")
     wave_worker_parser.add_argument("--project-cwd", required=True)
@@ -1075,19 +1143,17 @@ def main(argv: list[str] | None = None) -> int:
             assert cwd is not None
             register_fixer_session(cwd, getattr(args, "fixer_session_id", None))
             return 0
-        if args.command == "launch-netrunner":
+        if args.command == "launch-wave-reviewer":
             assert cwd is not None
-            launch_netrunner(
+            launch_wave_reviewer(
                 cwd,
                 args.session_id,
-                getattr(args, "fixer_session_id", None),
+                args.wave_id,
                 getattr(args, "backend", None),
                 getattr(args, "model", None),
                 getattr(args, "reasoning", None),
                 Path(args.headless_log_path).expanduser().resolve() if getattr(args, "headless_log_path", None) else None,
                 Path(args.worker_metadata_path).expanduser().resolve() if getattr(args, "worker_metadata_path", None) else None,
-                bool(getattr(args, "suppress_autonomous_wake", False)),
-                getattr(args, "playwright_runtime_mode", None),
             )
             return 0
         if args.command == "launch-wave-worker":

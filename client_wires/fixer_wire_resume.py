@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from client_wires.backends import SUPPORTED_BACKENDS, normalize_backend_name
+from client_wires.backends import SUPPORTED_BACKENDS, available_backend_descriptors, normalize_backend_name
 from client_wires import fixer_wire_db
 from client_wires import fixer_wire_selectors
 
@@ -22,6 +24,10 @@ class ResumeSessionSummary:
     preview: str
     provider: str = "codex"
     log_path: Path | None = None
+    cwd: Path | None = None
+    model: str = ""
+    reasoning: str = ""
+    origin: str = "provider_history"
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,46 @@ def wrap_resume_summary(summary: Any, provider: str, *, log_path: Path | None = 
         preview=str(getattr(summary, "preview", "") or ""),
         provider=normalize_backend_name(provider),
         log_path=log_path,
+        cwd=getattr(summary, "cwd", None),
+        model=str(getattr(summary, "model", "") or ""),
+        reasoning=str(getattr(summary, "reasoning", "") or ""),
+        origin=str(getattr(summary, "origin", "provider_history") or "provider_history"),
+    )
+
+
+def _backend_defaults(provider: str) -> tuple[str, str]:
+    normalized = normalize_backend_name(provider)
+    for descriptor in available_backend_descriptors():
+        if descriptor.name == normalized:
+            return descriptor.default_model, descriptor.default_reasoning
+    return "", ""
+
+
+def _summary_with_metadata(
+    *,
+    provider: str,
+    session_id: str,
+    created: datetime,
+    updated: datetime,
+    preview: str,
+    log_path: Path | None,
+    cwd: Path,
+    model: str = "",
+    reasoning: str = "",
+    origin: str,
+) -> ResumeSessionSummary:
+    default_model, default_reasoning = _backend_defaults(provider)
+    return ResumeSessionSummary(
+        provider=normalize_backend_name(provider),
+        session_id=session_id,
+        created=created,
+        updated=updated,
+        preview=preview,
+        log_path=log_path,
+        cwd=cwd.resolve(),
+        model=model.strip() or default_model,
+        reasoning=reasoning.strip() or default_reasoning,
+        origin=origin,
     )
 
 
@@ -330,6 +376,57 @@ def _walk_strings(value: object) -> list[str]:
     return []
 
 
+def _first_string_for_keys(value: object, keys: Sequence[str]) -> str:
+    if isinstance(value, dict):
+        for key in keys:
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for nested in value.values():
+            candidate = _first_string_for_keys(nested, keys)
+            if candidate:
+                return candidate
+    elif isinstance(value, list):
+        for nested in value:
+            candidate = _first_string_for_keys(nested, keys)
+            if candidate:
+                return candidate
+    return ""
+
+
+def _provider_metadata_from_records(records: Sequence[dict[str, Any]]) -> tuple[str, str]:
+    model = ""
+    reasoning = ""
+    for record in records:
+        if not model:
+            model = _first_string_for_keys(record, ("model", "modelId", "model_id"))
+        if not reasoning:
+            reasoning = _first_string_for_keys(
+                record,
+                ("reasoning", "reasoningEffort", "reasoning_effort", "effort"),
+            )
+        if model and reasoning:
+            break
+    return model, reasoning
+
+
+def _codex_summary_with_metadata(summary: Any, log_path: Path, cwd: Path) -> ResumeSessionSummary:
+    records = _iter_jsonl_records(log_path)
+    model, reasoning = _provider_metadata_from_records(records)
+    return _summary_with_metadata(
+        provider="codex",
+        session_id=str(summary.session_id),
+        created=summary.created,
+        updated=summary.updated,
+        preview=str(getattr(summary, "preview", "") or ""),
+        log_path=log_path,
+        cwd=cwd,
+        model=model,
+        reasoning=reasoning,
+        origin="codex_session_log",
+    )
+
+
 _SKIPPED_PREVIEW_PREFIXES = (
     "<system-reminder>",
     "<command-name>",
@@ -519,23 +616,32 @@ def _first_marker_position(texts: Sequence[str], markers: Sequence[str]) -> int 
     return min(positions) if positions else None
 
 
-def _antigravity_conversation_is_fixer(texts: Sequence[str]) -> bool | None:
-    fixer_position = _first_marker_position(texts, _ANTIGRAVITY_FIXER_MARKERS)
+def _antigravity_conversation_has_role(texts: Sequence[str], role: str) -> bool | None:
+    marker_sets = {
+        "fixer": _ANTIGRAVITY_FIXER_MARKERS,
+        "netrunner": _ANTIGRAVITY_NETRUNNER_MARKERS,
+        "overseer": _ANTIGRAVITY_OVERSEER_MARKERS,
+    }
+    selected_markers = marker_sets[role]
+    selected_position = _first_marker_position(texts, selected_markers)
     competing_positions = [
         position
-        for position in (
-            _first_marker_position(texts, _ANTIGRAVITY_NETRUNNER_MARKERS),
-            _first_marker_position(texts, _ANTIGRAVITY_OVERSEER_MARKERS),
-        )
+        for competing_role, markers in marker_sets.items()
+        if competing_role != role
+        for position in (_first_marker_position(texts, markers),)
         if position is not None
     ]
-    if fixer_position is None:
+    if selected_position is None:
         if competing_positions:
             return False
         return None
     if not competing_positions:
         return True
-    return fixer_position <= min(competing_positions)
+    return selected_position <= min(competing_positions)
+
+
+def _antigravity_conversation_is_fixer(texts: Sequence[str]) -> bool | None:
+    return _antigravity_conversation_has_role(texts, "fixer")
 
 
 def _antigravity_preview_from_history(store_root: Path, cwd: Path, conversation_id: str) -> str | None:
@@ -617,6 +723,46 @@ def _load_antigravity_fixer_resume_summaries(
     return summaries[:limit]
 
 
+def _load_antigravity_overseer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    store_root: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    if limit <= 0:
+        return []
+
+    resolved_store_root = store_root or _antigravity_store_root()
+    summaries: list[ResumeSessionSummary] = []
+    for conversation_id in _iter_antigravity_conversation_ids_for_cwd(resolved_store_root, cwd):
+        conversation_file = _antigravity_conversation_file(resolved_store_root, conversation_id)
+        if conversation_file is None:
+            continue
+        texts = _printable_strings_from_binary_file(conversation_file)
+        if _antigravity_conversation_has_role(texts, "overseer") is not True:
+            continue
+        summaries.append(
+            _summary_with_metadata(
+                provider="antigravity",
+                session_id=conversation_id,
+                created=_file_birth_time(conversation_file),
+                updated=_file_time(conversation_file),
+                preview=(
+                    _antigravity_preview_from_history(resolved_store_root, cwd, conversation_id)
+                    or _antigravity_preview_from_strings(
+                        texts,
+                        fallback=_ANTIGRAVITY_CONVERSATION_FALLBACK_PREVIEW,
+                    )
+                ),
+                log_path=conversation_file,
+                cwd=cwd,
+                origin="antigravity_conversation_store",
+            )
+        )
+    summaries.sort(key=lambda summary: summary.updated, reverse=True)
+    return summaries[:limit]
+
+
 def _load_claude_fixer_resume_summaries(
     cwd: Path,
     *,
@@ -648,6 +794,52 @@ def _load_claude_fixer_resume_summaries(
                 updated=updated,
                 preview=_preview_from_records(records, fallback=log_path.stem),
                 log_path=log_path,
+            )
+        )
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
+def _load_claude_overseer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    session_is_overseer: Callable[[Path], bool],
+    store_root: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    project_dir = (store_root or (Path.home() / ".claude" / "projects")) / _project_store_slug(cwd)
+    if not project_dir.is_dir():
+        return []
+
+    summaries: list[ResumeSessionSummary] = []
+    for log_path in sorted(project_dir.glob("*.jsonl"), key=_file_time, reverse=True):
+        if not session_is_overseer(log_path):
+            continue
+        records = _iter_jsonl_records(log_path)
+        fallback = _file_time(log_path)
+        session_id = next(
+            (
+                str(record.get("sessionId", "") or "").strip()
+                for record in records
+                if str(record.get("sessionId", "") or "").strip()
+            ),
+            log_path.stem,
+        )
+        created, updated = _summary_times_from_records(records, fallback=fallback)
+        model, reasoning = _provider_metadata_from_records(records)
+        summaries.append(
+            _summary_with_metadata(
+                provider="claude",
+                session_id=session_id,
+                created=created,
+                updated=updated,
+                preview=_preview_from_records(records, fallback=log_path.stem),
+                log_path=log_path,
+                cwd=cwd,
+                model=model,
+                reasoning=reasoning,
+                origin="claude_project_log",
             )
         )
         if len(summaries) >= limit:
@@ -696,6 +888,50 @@ def _load_droid_fixer_resume_summaries(
     return summaries
 
 
+def _load_droid_overseer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    session_is_overseer: Callable[[Path], bool],
+    store_root: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    project_dir = (store_root or (Path.home() / ".factory" / "sessions")) / _project_store_slug(cwd)
+    if not project_dir.is_dir():
+        return []
+
+    summaries: list[ResumeSessionSummary] = []
+    for log_path in sorted(project_dir.glob("*.jsonl"), key=_file_time, reverse=True):
+        records = _iter_jsonl_records(log_path)
+        if records:
+            recorded_cwd = str(records[0].get("cwd", "") or "")
+            if recorded_cwd and Path(recorded_cwd).resolve() != cwd.resolve():
+                continue
+        if not session_is_overseer(log_path):
+            continue
+        fallback = _file_time(log_path)
+        first_record = records[0] if records else {}
+        session_id = str(first_record.get("id", "") or first_record.get("sessionId", "") or log_path.stem)
+        created, updated = _summary_times_from_records(records, fallback=fallback)
+        model, reasoning = _provider_metadata_from_records(records)
+        summaries.append(
+            _summary_with_metadata(
+                provider="droid",
+                session_id=session_id,
+                created=created,
+                updated=updated,
+                preview=str(first_record.get("sessionTitle", "") or first_record.get("title", "") or log_path.stem),
+                log_path=log_path,
+                cwd=cwd,
+                model=model,
+                reasoning=reasoning,
+                origin="droid_session_log",
+            )
+        )
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
 def _load_junie_fixer_resume_summaries(
     cwd: Path,
     *,
@@ -736,6 +972,186 @@ def _load_junie_fixer_resume_summaries(
         if len(summaries) >= limit:
             break
     return summaries
+
+
+def _load_junie_overseer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    session_is_overseer: Callable[[Path], bool],
+    index_path: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    resolved_index_path = index_path or (Path.home() / ".junie" / "sessions" / "index.jsonl")
+    if not resolved_index_path.is_file():
+        return []
+
+    summaries: list[ResumeSessionSummary] = []
+    fallback = _file_time(resolved_index_path)
+    for record in _iter_jsonl_records(resolved_index_path, max_lines=1000):
+        if str(record.get("projectDir", "") or "") != str(cwd.resolve()):
+            continue
+        session_id = str(record.get("sessionId", "") or "").strip()
+        if not session_id:
+            continue
+        session_dir = resolved_index_path.parent / session_id
+        marker_path = session_dir / "state.json"
+        if not marker_path.is_file():
+            marker_path = session_dir / "events.jsonl"
+        if not marker_path.is_file() or not session_is_overseer(marker_path):
+            continue
+        created = _datetime_from_value(record.get("createdAt"), fallback=fallback)
+        updated = _datetime_from_value(record.get("updatedAt"), fallback=created)
+        model, reasoning = _provider_metadata_from_records([record])
+        summaries.append(
+            _summary_with_metadata(
+                provider="junie",
+                session_id=session_id,
+                created=created,
+                updated=updated,
+                preview=str(record.get("taskName", "") or session_id),
+                log_path=marker_path,
+                cwd=cwd,
+                model=model,
+                reasoning=reasoning,
+                origin="junie_session_index",
+            )
+        )
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
+def _kimi_workdir_hash(cwd: Path) -> str:
+    return hashlib.md5(str(cwd.resolve()).encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _kimi_store_root() -> Path:
+    configured = os.environ.get("KIMI_SHARE_DIR", "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / ".kimi"
+
+
+def _kimi_native_store_root() -> Path:
+    configured = os.environ.get("KIMI_CODE_SHARE_DIR", "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / ".kimi-code"
+
+
+def _kimi_native_workdir_name(cwd: Path) -> str:
+    safe_name = re.sub(r"[^A-Za-z0-9]+", "_", cwd.resolve().name).strip("_") or "workspace"
+    digest = hashlib.sha256(str(cwd.resolve()).encode("utf-8")).hexdigest()[:12]
+    return f"wd_{safe_name}_{digest}"
+
+
+def _iter_kimi_session_dirs(
+    cwd: Path,
+    *,
+    store_root: Path | None = None,
+    include_native: bool = False,
+) -> list[tuple[str, Path, Path]]:
+    roots: list[tuple[str, Path]] = [("kimi-code", store_root or _kimi_store_root())]
+    if include_native:
+        roots.append(("kimi-code-native", _kimi_native_store_root()))
+
+    found: list[tuple[str, Path, Path]] = []
+    for provider, root in roots:
+        sessions_root = root / "sessions"
+        if provider == "kimi-code-native":
+            workdir_root = sessions_root / _kimi_native_workdir_name(cwd)
+            workdir_roots = [workdir_root]
+            if not workdir_root.is_dir() and sessions_root.is_dir():
+                digest = _kimi_native_workdir_name(cwd).rsplit("_", 1)[-1]
+                workdir_roots = sorted(sessions_root.glob(f"wd_*_{digest}"))
+        else:
+            workdir_roots = [sessions_root / _kimi_workdir_hash(cwd)]
+
+        for workdir_root in workdir_roots:
+            if not workdir_root.is_dir():
+                continue
+            for session_dir in sorted(workdir_root.iterdir(), key=_file_time, reverse=True):
+                context_path = session_dir / "context.jsonl"
+                if session_dir.is_dir() and context_path.is_file():
+                    found.append((provider, session_dir, context_path))
+    return found
+
+
+def _load_kimi_role_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    session_is_role: Callable[[Path], bool],
+    store_root: Path | None = None,
+    include_native: bool = False,
+) -> list[ResumeSessionSummary]:
+    if limit <= 0:
+        return []
+
+    summaries: list[ResumeSessionSummary] = []
+    for provider, session_dir, context_path in _iter_kimi_session_dirs(
+        cwd,
+        store_root=store_root,
+        include_native=include_native,
+    ):
+        if not session_is_role(context_path):
+            continue
+        records = _iter_jsonl_records(context_path)
+        fallback = _file_time(context_path)
+        created, updated = _summary_times_from_records(records, fallback=fallback)
+        model, reasoning = _provider_metadata_from_records(records)
+        state_path = session_dir / "state.json"
+        state: dict[str, Any] = {}
+        try:
+            raw_state = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(raw_state, dict):
+                state = raw_state
+        except (OSError, json.JSONDecodeError):
+            pass
+        summaries.append(
+            _summary_with_metadata(
+                provider=provider,
+                session_id=session_dir.name,
+                created=created,
+                updated=updated,
+                preview=str(state.get("title", "") or _preview_from_records(records, fallback=session_dir.name)),
+                log_path=context_path,
+                cwd=cwd,
+                model=model,
+                reasoning=reasoning,
+                origin="kimi_session_store",
+            )
+        )
+        if len(summaries) >= limit:
+            break
+    return summaries
+
+
+def _load_kimi_overseer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    session_is_overseer: Callable[[Path], bool],
+    store_root: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    return _load_kimi_role_resume_summaries(
+        cwd,
+        limit=limit,
+        session_is_role=session_is_overseer,
+        store_root=store_root,
+    )
+
+
+def _load_kimi_fixer_resume_summaries(
+    cwd: Path,
+    *,
+    limit: int,
+    session_is_fixer: Callable[[Path], bool],
+    store_root: Path | None = None,
+) -> list[ResumeSessionSummary]:
+    return _load_kimi_role_resume_summaries(
+        cwd,
+        limit=limit,
+        session_is_role=session_is_fixer,
+        store_root=store_root,
+        include_native=True,
+    )
 
 
 def load_fixer_resume_alias_session_ids(
@@ -789,6 +1205,7 @@ def load_fixer_resume_summaries(
         _load_droid_fixer_resume_summaries,
         _load_junie_fixer_resume_summaries,
         _load_antigravity_fixer_resume_summaries,
+        _load_kimi_fixer_resume_summaries,
     )
     for provider_loader in provider_loaders:
         remaining = max(limit - len(fixer_summaries), 0)
@@ -819,21 +1236,47 @@ def load_overseer_resume_summaries(
     load_cwd_summaries: Callable[..., tuple[Any, list[Any]]] = load_cwd_session_summaries,
     session_is_overseer: Callable[[Path], bool],
 ) -> list[Any]:
+    overseer_summaries: list[ResumeSessionSummary] = []
+    codex_error: RuntimeError | None = None
     try:
         find_session_log, summaries = load_cwd_summaries(cwd, limit=limit)
     except RuntimeError as err:
-        raise RuntimeError("Unable to load Codex history helpers for Overseer resume flow.") from err
-    overseer_summaries: list[Any] = []
-    for summary in summaries:
-        log_path = find_session_log(summary.session_id, created=summary.created, updated=summary.updated)
-        if not log_path:
-            continue
-        if not session_is_overseer(log_path):
-            continue
-        overseer_summaries.append(summary)
-        if len(overseer_summaries) >= limit:
+        codex_error = RuntimeError("Unable to load Codex history helpers for Overseer resume flow.")
+    else:
+        for summary in summaries:
+            log_path = find_session_log(summary.session_id, created=summary.created, updated=summary.updated)
+            if not log_path or not session_is_overseer(log_path):
+                continue
+            overseer_summaries.append(_codex_summary_with_metadata(summary, log_path, cwd))
+            if len(overseer_summaries) >= limit:
+                break
+
+    provider_loaders: tuple[Callable[..., list[ResumeSessionSummary]], ...] = (
+        _load_claude_overseer_resume_summaries,
+        _load_droid_overseer_resume_summaries,
+        _load_junie_overseer_resume_summaries,
+        _load_antigravity_overseer_resume_summaries,
+        _load_kimi_overseer_resume_summaries,
+    )
+    for provider_loader in provider_loaders:
+        remaining = max(limit - len(overseer_summaries), 0)
+        if remaining <= 0:
             break
-    return overseer_summaries
+        if provider_loader is _load_antigravity_overseer_resume_summaries:
+            overseer_summaries.extend(provider_loader(cwd, limit=remaining))
+        else:
+            overseer_summaries.extend(
+                provider_loader(
+                    cwd,
+                    limit=remaining,
+                    session_is_overseer=session_is_overseer,
+                )
+            )
+
+    if not overseer_summaries and codex_error is not None:
+        raise codex_error
+    overseer_summaries.sort(key=lambda summary: summary.updated, reverse=True)
+    return overseer_summaries[:limit]
 
 
 def load_netrunner_resume_summaries(

@@ -4,16 +4,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 
+import 'architect_cockpit.dart';
+import 'app_localizations.dart';
 import 'dashboard_models.dart';
 import 'dashboard_repository.dart';
+import 'hub/backlog/backlog_panel.dart';
+import 'hub/backlog/backlog_repository.dart';
+import 'hub/docs/documents_explorer.dart';
+import 'hub/fixer_chat/fixer_chat_panel.dart';
+import 'hub/fixer_chat/fixer_chat_service.dart';
+import 'hub/netrunner_thread/netrunner_thread_panel.dart';
+import 'hub/netrunner_thread/netrunner_thread_repository.dart';
+import 'hub/netrunners/netrunner_explorer.dart';
+import 'hub/netrunners/netrunner_repository.dart';
+import 'hub/overseer/overseer_manager.dart';
+import 'hub/overseer/overseer_repository.dart';
+import 'hub/project_cards/project_cards.dart';
+import 'hub/skills/skills_manager.dart';
+import 'hub/skills/skills_repository.dart';
+import 'mission_control/mission_control_repository.dart';
+import 'mission_control/mission_control_view.dart';
 
 const _chromeBorder = Color(0xFFD9E0EC);
 const _sidebarFill = Color(0xFFF1F4F9);
 
 class DashboardShell extends StatefulWidget {
-  const DashboardShell({super.key, required this.repository});
+  const DashboardShell({
+    super.key,
+    required this.repository,
+    this.architectCockpitRepository,
+    this.backlogRepository,
+    this.netrunnerExplorerRepository,
+    this.fixerChatService,
+    this.netrunnerThreadRepository,
+    this.skillsRepository,
+    this.overseerRepository,
+    this.missionControlRepository,
+  });
 
   final DashboardRepository repository;
+  final ArchitectCockpitRepository? architectCockpitRepository;
+  final BacklogRepository? backlogRepository;
+  final NetrunnerExplorerRepository? netrunnerExplorerRepository;
+  final FixerChatService? fixerChatService;
+  final NetrunnerThreadRepository? netrunnerThreadRepository;
+  final SkillsRepository? skillsRepository;
+  final OverseerManagerRepository? overseerRepository;
+  final MissionControlRepository? missionControlRepository;
 
   @override
   State<DashboardShell> createState() => _DashboardShellState();
@@ -21,11 +58,30 @@ class DashboardShell extends StatefulWidget {
 
 class _DashboardShellState extends State<DashboardShell> {
   late Future<HomeSnapshot> _homeFuture;
+  late final BacklogRepository _backlogRepository;
+  late final NetrunnerExplorerRepository _netrunnerExplorerRepository;
+  late final FixerChatService _fixerChatService;
+  late final NetrunnerThreadRepository _netrunnerThreadRepository;
+  late final SkillsRepository _skillsRepository;
+  late final OverseerManagerRepository _overseerRepository;
+  late final MissionControlRepository _missionControlRepository;
 
   @override
   void initState() {
     super.initState();
     _homeFuture = widget.repository.loadHomeSnapshot();
+    _backlogRepository = widget.backlogRepository ?? BridgeBacklogRepository();
+    _netrunnerExplorerRepository =
+        widget.netrunnerExplorerRepository ??
+        BridgeNetrunnerExplorerRepository();
+    _fixerChatService = widget.fixerChatService ?? BridgeFixerChatService();
+    _netrunnerThreadRepository =
+        widget.netrunnerThreadRepository ?? BridgeNetrunnerThreadRepository();
+    _skillsRepository = widget.skillsRepository ?? BridgeSkillsRepository();
+    _overseerRepository =
+        widget.overseerRepository ?? DashboardOverseerManagerRepository();
+    _missionControlRepository =
+        widget.missionControlRepository ?? BridgeMissionControlRepository();
   }
 
   void _reload() {
@@ -41,6 +97,12 @@ class _DashboardShellState extends State<DashboardShell> {
         builder: (_) => _ProjectRouteScreen(
           repository: widget.repository,
           projectId: projectId,
+          architectCockpitRepository: widget.architectCockpitRepository,
+          backlogRepository: _backlogRepository,
+          netrunnerExplorerRepository: _netrunnerExplorerRepository,
+          fixerChatService: _fixerChatService,
+          netrunnerThreadRepository: _netrunnerThreadRepository,
+          missionControlRepository: _missionControlRepository,
         ),
       ),
     );
@@ -49,22 +111,67 @@ class _DashboardShellState extends State<DashboardShell> {
     }
   }
 
+  Future<void> _openArchitectCockpit() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/architect-cockpit'),
+        builder: (_) => ArchitectCockpitScreen(
+          repository:
+              widget.architectCockpitRepository ??
+              BridgeArchitectCockpitRepository(),
+        ),
+      ),
+    );
+    if (mounted) _reload();
+  }
+
+  Future<void> _openSkillsManager() async {
+    final home = await _homeFuture;
+    if (!mounted || home.projects.isEmpty) return;
+    final projectId = home.currentProject?.id ?? home.projects.first.project.id;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: '/project/$projectId/skills'),
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: Text(AppLocalizations.of(context).skillsManager),
+          ),
+          body: SkillsManagerScreen(
+            projectId: projectId,
+            repository: _skillsRepository,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.hub_outlined, size: 20),
             SizedBox(width: 10),
-            Text('Codex Hub'),
+            Text(l10n.productName),
           ],
         ),
         actions: [
           IconButton(
+            onPressed: _openArchitectCockpit,
+            tooltip: l10n.architectCockpit,
+            icon: const Icon(Icons.merge_type_outlined),
+          ),
+          IconButton(
+            onPressed: _openSkillsManager,
+            tooltip: l10n.skillsManager,
+            icon: const Icon(Icons.extension_outlined),
+          ),
+          IconButton(
             onPressed: _reload,
-            tooltip: 'Refresh',
+            tooltip: l10n.refresh,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -85,28 +192,22 @@ class _DashboardShellState extends State<DashboardShell> {
           final home = snapshot.data!;
           if (home.projects.isEmpty) {
             return _ErrorState(
-              message: 'No Fixer MCP projects were returned by the bridge.',
+              message: l10n.isRussian
+                  ? 'Мост не вернул проекты Fixer MCP.'
+                  : 'No Fixer MCP projects were returned by the bridge.',
               onRetry: _reload,
             );
           }
 
-          final selectedProjectId =
-              home.currentProject?.id ?? home.projects.first.project.id;
           return LayoutBuilder(
             builder: (context, constraints) {
               final wide = constraints.maxWidth >= 1040;
               final rail = _HomeProjectRail(
                 home: home,
-                selectedProjectId: selectedProjectId,
                 onOpenProject: _openProject,
               );
-              final chat = _HomeChatWorkspace(
-                home: home,
-                loadOverseerChatBinding:
-                    widget.repository.loadOverseerChatBinding,
-                loadThreadMessages: widget.repository.loadThreadMessages,
-                sendThreadMessage: widget.repository.sendThreadMessage,
-                loadThreadTurnStatus: widget.repository.loadThreadTurnStatus,
+              final overseers = OverseerManager(
+                repository: _overseerRepository,
               );
 
               if (wide) {
@@ -115,7 +216,7 @@ class _DashboardShellState extends State<DashboardShell> {
                   children: [
                     SizedBox(width: 360, child: rail),
                     const VerticalDivider(width: 1),
-                    Expanded(child: chat),
+                    Expanded(child: overseers),
                   ],
                 );
               }
@@ -125,7 +226,7 @@ class _DashboardShellState extends State<DashboardShell> {
                 children: [
                   SizedBox(height: 560, child: rail),
                   const SizedBox(height: 12),
-                  SizedBox(height: 760, child: chat),
+                  SizedBox(height: 760, child: overseers),
                 ],
               );
             },
@@ -140,10 +241,22 @@ class _ProjectRouteScreen extends StatefulWidget {
   const _ProjectRouteScreen({
     required this.repository,
     required this.projectId,
+    this.architectCockpitRepository,
+    required this.backlogRepository,
+    required this.netrunnerExplorerRepository,
+    required this.fixerChatService,
+    required this.netrunnerThreadRepository,
+    required this.missionControlRepository,
   });
 
   final DashboardRepository repository;
   final int projectId;
+  final ArchitectCockpitRepository? architectCockpitRepository;
+  final BacklogRepository backlogRepository;
+  final NetrunnerExplorerRepository netrunnerExplorerRepository;
+  final FixerChatService fixerChatService;
+  final NetrunnerThreadRepository netrunnerThreadRepository;
+  final MissionControlRepository missionControlRepository;
 
   @override
   State<_ProjectRouteScreen> createState() => _ProjectRouteScreenState();
@@ -171,6 +284,7 @@ class _ProjectRouteScreenState extends State<_ProjectRouteScreen> {
         builder: (_) => _NetrunnerRouteScreen(
           repository: widget.repository,
           sessionId: sessionId,
+          threadRepository: widget.netrunnerThreadRepository,
         ),
       ),
     );
@@ -180,6 +294,7 @@ class _ProjectRouteScreenState extends State<_ProjectRouteScreen> {
   }
 
   Future<void> _createTask(ProjectWorkspaceSnapshot project) async {
+    final l10n = AppLocalizations.of(context);
     final input = await showDialog<_TaskDraft>(
       context: context,
       builder: (context) => const _CreateTaskDialog(),
@@ -199,7 +314,11 @@ class _ProjectRouteScreenState extends State<_ProjectRouteScreen> {
       setState(() {
         _projectFuture = Future.value(snapshot);
       });
-      _showNotice('Created a new pending Netrunner task.');
+      _showNotice(
+        l10n.isRussian
+            ? 'Новая ожидающая задача Netrunner создана.'
+            : 'Created a new pending Netrunner task.',
+      );
     } catch (error) {
       _showNotice(error.toString());
     }
@@ -216,13 +335,14 @@ class _ProjectRouteScreenState extends State<_ProjectRouteScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Project'),
+        title: Text(l10n.project),
         actions: [
           IconButton(
             onPressed: _reload,
-            tooltip: 'Refresh project',
+            tooltip: l10n.refreshProject,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -245,10 +365,11 @@ class _ProjectRouteScreenState extends State<_ProjectRouteScreen> {
             project: project,
             onOpenSession: _openSession,
             onCreateTask: () => _createTask(project),
-            loadFixerChatBinding: widget.repository.loadFixerChatBinding,
-            loadThreadMessages: widget.repository.loadThreadMessages,
-            sendThreadMessage: widget.repository.sendThreadMessage,
-            loadThreadTurnStatus: widget.repository.loadThreadTurnStatus,
+            architectCockpitRepository: widget.architectCockpitRepository,
+            backlogRepository: widget.backlogRepository,
+            netrunnerExplorerRepository: widget.netrunnerExplorerRepository,
+            fixerChatService: widget.fixerChatService,
+            missionControlRepository: widget.missionControlRepository,
           );
         },
       ),
@@ -260,10 +381,12 @@ class _NetrunnerRouteScreen extends StatefulWidget {
   const _NetrunnerRouteScreen({
     required this.repository,
     required this.sessionId,
+    required this.threadRepository,
   });
 
   final DashboardRepository repository;
   final int sessionId;
+  final NetrunnerThreadRepository threadRepository;
 
   @override
   State<_NetrunnerRouteScreen> createState() => _NetrunnerRouteScreenState();
@@ -285,10 +408,11 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
   }
 
   Future<void> _updateAttachedDocs(SessionDetailRecord session) async {
+    final l10n = AppLocalizations.of(context);
     final selectedDocIds = await showDialog<List<int>>(
       context: context,
       builder: (context) => _MultiSelectDialog<int>(
-        title: 'Attach internal docs',
+        title: l10n.attachDocs,
         items: session.availableDocs.map((doc) => doc.id).toList(),
         initiallySelected: session.attachedDocs.map((doc) => doc.id).toSet(),
         labelBuilder: (id) {
@@ -307,15 +431,18 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
     await _runMutation(
       () =>
           widget.repository.setSessionAttachedDocs(session.id, selectedDocIds),
-      successMessage: 'Updated attached docs.',
+      successMessage: l10n.isRussian
+          ? 'Прикреплённые документы обновлены.'
+          : 'Updated attached docs.',
     );
   }
 
   Future<void> _updateMcpServers(SessionDetailRecord session) async {
+    final l10n = AppLocalizations.of(context);
     final selectedNames = await showDialog<List<String>>(
       context: context,
       builder: (context) => _MultiSelectDialog<String>(
-        title: 'Assign MCP servers',
+        title: l10n.assignMcps,
         items: session.availableMcpServers
             .map((server) => server.name)
             .toList(),
@@ -336,15 +463,18 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
     }
     await _runMutation(
       () => widget.repository.setSessionMcpServers(session.id, selectedNames),
-      successMessage: 'Updated MCP assignments.',
+      successMessage: l10n.isRussian
+          ? 'Назначения MCP обновлены.'
+          : 'Updated MCP assignments.',
     );
   }
 
   Future<void> _updateSessionStatus(SessionDetailRecord session) async {
+    final l10n = AppLocalizations.of(context);
     final selectedStatus = await showDialog<String>(
       context: context,
       builder: (context) => _ChoiceDialog<String>(
-        title: 'Move session status',
+        title: l10n.changeStatus,
         items: session.allowedStatusTargets,
         labelBuilder: (status) => status,
       ),
@@ -354,7 +484,9 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
     }
     await _runMutation(
       () => widget.repository.setSessionStatus(session.id, selectedStatus),
-      successMessage: 'Updated session status.',
+      successMessage: l10n.isRussian
+          ? 'Статус сессии обновлён.'
+          : 'Updated session status.',
     );
   }
 
@@ -363,9 +495,12 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
     DocProposalSummaryRecord proposal,
     String status,
   ) async {
+    final l10n = AppLocalizations.of(context);
     await _runMutation(
       () => widget.repository.setProposalStatus(proposal.id, status),
-      successMessage: 'Updated proposal #${proposal.localId}.',
+      successMessage: l10n.isRussian
+          ? 'Предложение №${proposal.localId} обновлено.'
+          : 'Updated proposal #${proposal.localId}.',
     );
   }
 
@@ -417,6 +552,7 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
             onAssignMcpServers: _updateMcpServers,
             onChangeStatus: _updateSessionStatus,
             onSetProposalStatus: _updateProposalStatus,
+            threadRepository: widget.threadRepository,
           );
         },
       ),
@@ -425,47 +561,62 @@ class _NetrunnerRouteScreenState extends State<_NetrunnerRouteScreen> {
 }
 
 class _HomeProjectRail extends StatelessWidget {
-  const _HomeProjectRail({
-    required this.home,
-    required this.selectedProjectId,
-    required this.onOpenProject,
-  });
+  const _HomeProjectRail({required this.home, required this.onOpenProject});
 
   final HomeSnapshot home;
-  final int selectedProjectId;
   final ValueChanged<int> onOpenProject;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: _sidebarFill,
         border: const Border(right: BorderSide(color: _chromeBorder)),
       ),
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _SectionTitle(
-            title: 'Projects',
-            subtitle:
-                home.currentProject?.cwd ??
-                'Bridge-backed Fixer MCP project state.',
-          ),
-          const SizedBox(height: 16),
-          for (final project in home.projects) ...[
-            _ProjectCard(
-              project: project,
-              selected: project.project.id == selectedProjectId,
-              onTap: () => onOpenProject(project.project.id),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _SectionTitle(
+              title: l10n.projectListTitle,
+              subtitle:
+                  home.currentProject?.cwd ??
+                  (l10n.isRussian
+                      ? 'Проекты отсортированы по последней активности.'
+                      : 'Projects ordered by latest activity.'),
             ),
-            const SizedBox(height: 10),
-          ],
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: ProjectCards(
+              projects: home.projects
+                  .map(
+                    (project) => HubProjectCard(
+                      projectId: project.project.id,
+                      name: project.project.name,
+                      cwd: project.project.cwd,
+                      activeWaveCount: project.activeWaveCount,
+                      lastActivityAt: project.lastActivityAt,
+                    ),
+                  )
+                  .toList(growable: false),
+              onProjectTap: onOpenProject,
+              emptyLabel: l10n.isRussian
+                  ? 'Нет доступных проектов.'
+                  : 'No projects available.',
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
+// Kept as a compatibility fallback while the parent shell migrates to the
+// provider-neutral Overseer manager.
+// ignore: unused_element
 class _HomeChatWorkspace extends StatelessWidget {
   const _HomeChatWorkspace({
     required this.home,
@@ -487,6 +638,7 @@ class _HomeChatWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final projectId = home.currentProject?.id;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -499,8 +651,12 @@ class _HomeChatWorkspace extends StatelessWidget {
                 child: _SectionTitle(
                   title: 'Overseer',
                   subtitle: projectId == null
-                      ? 'No current project binding'
-                      : 'Global chat binding',
+                      ? (l10n.isRussian
+                            ? 'Нет привязки текущего проекта'
+                            : 'No current project binding')
+                      : (l10n.isRussian
+                            ? 'Глобальная привязка чата'
+                            : 'Global chat binding'),
                   compact: true,
                 ),
               ),
@@ -538,29 +694,28 @@ class _ProjectWorkspace extends StatelessWidget {
     required this.project,
     required this.onOpenSession,
     required this.onCreateTask,
-    required this.loadFixerChatBinding,
-    required this.loadThreadMessages,
-    required this.sendThreadMessage,
-    required this.loadThreadTurnStatus,
+    this.architectCockpitRepository,
+    required this.backlogRepository,
+    required this.netrunnerExplorerRepository,
+    required this.fixerChatService,
+    required this.missionControlRepository,
   });
 
   final ProjectWorkspaceSnapshot project;
   final ValueChanged<int> onOpenSession;
   final VoidCallback onCreateTask;
-  final Future<FixerChatBindingRecord> Function(int projectId)
-  loadFixerChatBinding;
-  final Future<ThreadMessagesSnapshot> Function(String threadId)
-  loadThreadMessages;
-  final Future<ThreadSendResult> Function(String threadId, String prompt)
-  sendThreadMessage;
-  final Future<ThreadTurnStatusSnapshot> Function(String streamId)
-  loadThreadTurnStatus;
+  final ArchitectCockpitRepository? architectCockpitRepository;
+  final BacklogRepository backlogRepository;
+  final NetrunnerExplorerRepository netrunnerExplorerRepository;
+  final FixerChatService fixerChatService;
+  final MissionControlRepository missionControlRepository;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     return DefaultTabController(
-      length: 4,
+      length: 7,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -592,19 +747,22 @@ class _ProjectWorkspace extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: onCreateTask,
                   icon: const Icon(Icons.add_task),
-                  label: const Text('Create task'),
+                  label: Text(l10n.createTask),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          const TabBar(
+          TabBar(
             isScrollable: true,
             tabs: [
-              Tab(text: 'Overview'),
-              Tab(text: 'Docs'),
-              Tab(text: 'Netrunners'),
-              Tab(text: 'Fixer Chat'),
+              Tab(text: l10n.overview),
+              Tab(text: l10n.missionControl),
+              Tab(text: l10n.backlog),
+              Tab(text: l10n.docs),
+              Tab(text: l10n.netrunners),
+              Tab(text: l10n.fixerChat),
+              Tab(text: l10n.clientOrdersSandbox),
             ],
           ),
           Expanded(
@@ -614,23 +772,70 @@ class _ProjectWorkspace extends StatelessWidget {
                   project: project,
                   onOpenSession: onOpenSession,
                 ),
-                _ProjectDocsTab(project: project),
-                _ProjectNetrunnersTab(
-                  project: project,
-                  onOpenSession: onOpenSession,
-                ),
-                _AsyncChatBindingPanel(
+                MissionControlWavesView(
                   projectId: project.project.id,
-                  loadBinding: loadFixerChatBinding,
-                  loadThreadMessages: loadThreadMessages,
-                  sendThreadMessage: sendThreadMessage,
-                  loadThreadTurnStatus: loadThreadTurnStatus,
+                  repository: missionControlRepository,
+                ),
+                BacklogPanel(
+                  repository: backlogRepository,
+                  projectId: project.project.id,
+                ),
+                DocumentsExplorer(snapshot: project.documentsTree),
+                NetrunnerExplorerScreen(
+                  projectId: project.project.id,
+                  repository: netrunnerExplorerRepository,
+                  onSessionSelected: (session) => onOpenSession(session.id),
+                ),
+                FixerChatPanel(
+                  projectId: project.project.id,
+                  projectCwd: project.project.cwd,
+                  service: fixerChatService,
+                ),
+                _LazyArchitectCockpitTab(
+                  tabIndex: 6,
+                  repository:
+                      architectCockpitRepository ??
+                      BridgeArchitectCockpitRepository(),
                 ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _LazyArchitectCockpitTab extends StatefulWidget {
+  const _LazyArchitectCockpitTab({
+    required this.tabIndex,
+    required this.repository,
+  });
+
+  final int tabIndex;
+  final ArchitectCockpitRepository repository;
+
+  @override
+  State<_LazyArchitectCockpitTab> createState() =>
+      _LazyArchitectCockpitTabState();
+}
+
+class _LazyArchitectCockpitTabState extends State<_LazyArchitectCockpitTab> {
+  bool _started = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = DefaultTabController.of(context);
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, child) {
+        if (controller.index == widget.tabIndex) {
+          _started = true;
+        }
+        return _started
+            ? ArchitectCockpitScreen(repository: widget.repository)
+            : const SizedBox.shrink();
+      },
     );
   }
 }
@@ -646,28 +851,28 @@ class _ProjectOverviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hotSessions = project.netrunners
-        .where(
-          (session) =>
-              session.status == 'in_progress' || session.status == 'review',
-        )
-        .toList();
+    final l10n = AppLocalizations.of(context);
+    final activeWaves = project.waveGroups
+        .where((wave) => _isActiveWaveStatus(wave.status))
+        .toList(growable: false);
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         _MetricStrip(
           entries: [
-            ('Pending', project.metrics.counts.pending.toString()),
-            ('Running', project.metrics.counts.inProgress.toString()),
-            ('Review', project.metrics.counts.review.toString()),
-            ('Docs', project.metrics.attachedDocCount.toString()),
-            ('Proposals', project.metrics.pendingProposalCount.toString()),
+            (l10n.activeWaves, project.metrics.activeWaveCount.toString()),
+            (l10n.waves, project.metrics.totalWaveCount.toString()),
+            (l10n.workers, project.metrics.workerState.runningCount.toString()),
+            (l10n.docs, project.metrics.attachedDocCount.toString()),
+            (l10n.proposals, project.metrics.pendingProposalCount.toString()),
           ],
         ),
         const SizedBox(height: 16),
         if (project.autonomous != null)
           _Panel(
-            title: 'Autonomous status',
+            title: l10n.isRussian
+                ? 'Статус автономного режима'
+                : 'Autonomous status',
             trailing: _StatusPill(label: project.autonomous!.state),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -675,11 +880,13 @@ class _ProjectOverviewTab extends StatelessWidget {
                 Text(project.autonomous!.summary),
                 if (project.autonomous!.focus.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text('Focus: ${project.autonomous!.focus}'),
+                  Text(
+                    '${l10n.isRussian ? 'Фокус' : 'Focus'}: ${project.autonomous!.focus}',
+                  ),
                 ],
                 if (project.autonomous!.blocker.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text('Blocker: ${project.autonomous!.blocker}'),
+                  Text('${l10n.blockers}: ${project.autonomous!.blocker}'),
                 ],
                 if (project.autonomous!.evidence.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -690,29 +897,38 @@ class _ProjectOverviewTab extends StatelessWidget {
           ),
         const SizedBox(height: 16),
         _Panel(
-          title: 'Worker activity',
-          child: Text(
-            project.metrics.workerState.hasRunning
-                ? '${project.metrics.workerState.runningCount} active worker process${project.metrics.workerState.runningCount == 1 ? '' : 'es'}'
-                : 'No active worker processes reported.',
-          ),
-        ),
-        const SizedBox(height: 16),
-        _Panel(
-          title: 'Review-needed netrunners',
+          title: l10n.activeWaves,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (hotSessions.isEmpty)
-                const Text(
-                  'No in-progress or review sessions in this snapshot.',
+              if (activeWaves.isEmpty)
+                Text(
+                  l10n.isRussian
+                      ? 'Сейчас у проекта нет активных волн.'
+                      : 'This project has no active waves.',
                 ),
-              for (final session in hotSessions) ...[
-                _SessionRow(
-                  session: session,
-                  onTap: () => onOpenSession(session.id),
+              for (final wave in activeWaves) ...[
+                _ReadableRecordCard(
+                  title: wave.waveIdentity.isEmpty
+                      ? 'Wave ${wave.waveId}'
+                      : wave.waveIdentity,
+                  badges: [
+                    wave.status,
+                    '${wave.workerCount} workers',
+                    if (wave.reviewerCount > 0)
+                      '${wave.reviewerCount} reviewers',
+                    if (wave.manualCount > 0) '${wave.manualCount} manual',
+                  ],
+                  body: wave.sessions
+                      .map(
+                        (session) =>
+                            '#${session.localId} · ${session.status} · ${session.headline}',
+                      )
+                      .join('\n'),
+                  caption: wave.updatedAt.isEmpty
+                      ? null
+                      : '${l10n.isRussian ? 'Обновлена' : 'Updated'} ${wave.updatedAt}',
                 ),
-                const SizedBox(height: 10),
               ],
             ],
           ),
@@ -722,6 +938,16 @@ class _ProjectOverviewTab extends StatelessWidget {
   }
 }
 
+bool _isActiveWaveStatus(String status) {
+  return !const {
+    'completed',
+    'failed',
+    'stopped',
+    'cleaned',
+  }.contains(status.trim().toLowerCase());
+}
+
+// ignore: unused_element
 class _ProjectDocsTab extends StatelessWidget {
   const _ProjectDocsTab({required this.project});
 
@@ -729,14 +955,21 @@ class _ProjectDocsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         _MetricStrip(
           entries: [
-            ('Doc groups', project.docs.groups.length.toString()),
-            ('Total docs', project.docs.totalDocs.toString()),
-            ('Pending', project.docs.pendingProposalCount.toString()),
+            (
+              l10n.isRussian ? 'Группы документов' : 'Doc groups',
+              project.docs.groups.length.toString(),
+            ),
+            (
+              l10n.isRussian ? 'Всего документов' : 'Total docs',
+              project.docs.totalDocs.toString(),
+            ),
+            (l10n.pending, project.docs.pendingProposalCount.toString()),
           ],
         ),
         const SizedBox(height: 16),
@@ -769,6 +1002,66 @@ class _ProjectDocsTab extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
+class _ProjectBacklogTab extends StatelessWidget {
+  const _ProjectBacklogTab({
+    required this.project,
+    required this.onOpenSession,
+  });
+
+  final ProjectWorkspaceSnapshot project;
+  final ValueChanged<int> onOpenSession;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final queued = project.netrunners
+        .where((session) => session.status == 'pending')
+        .toList(growable: false);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        _MetricStrip(
+          entries: [
+            (
+              l10n.isRussian ? 'Задачи в очереди' : 'Queued tasks',
+              queued.length.toString(),
+            ),
+            (
+              l10n.isRussian ? 'Все сессии' : 'All sessions',
+              project.netrunners.length.toString(),
+            ),
+            (l10n.review, project.metrics.counts.review.toString()),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _Panel(
+          title: l10n.isRussian ? 'Бэклог Netrunner' : 'Netrunner backlog',
+          child: queued.isEmpty
+              ? Text(
+                  l10n.isRussian
+                      ? 'Ожидающих задач Netrunner нет. Создайте задачу, чтобы добавить работу в очередь.'
+                      : 'No pending Netrunner tasks. Create a task to add work to the queue.',
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final session in queued) ...[
+                      _SessionRow(
+                        session: session,
+                        onTap: () => onOpenSession(session.id),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ignore: unused_element
 class _ProjectNetrunnersTab extends StatelessWidget {
   const _ProjectNetrunnersTab({
     required this.project,
@@ -780,14 +1073,15 @@ class _ProjectNetrunnersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
         _MetricStrip(
           entries: [
-            ('Sessions', project.netrunners.length.toString()),
-            ('Review', project.metrics.counts.review.toString()),
-            ('Workers', project.metrics.workerState.runningCount.toString()),
+            (l10n.sessions, project.netrunners.length.toString()),
+            (l10n.review, project.metrics.counts.review.toString()),
+            (l10n.workers, project.metrics.workerState.runningCount.toString()),
           ],
         ),
         const SizedBox(height: 16),
@@ -808,6 +1102,7 @@ class _SessionWorkspace extends StatelessWidget {
     required this.onAssignMcpServers,
     required this.onChangeStatus,
     required this.onSetProposalStatus,
+    required this.threadRepository,
   });
 
   final NetrunnerDetailSnapshot detail;
@@ -821,18 +1116,21 @@ class _SessionWorkspace extends StatelessWidget {
     String status,
   )
   onSetProposalStatus;
+  final NetrunnerThreadRepository threadRepository;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final session = detail.session;
     final theme = Theme.of(context);
-    final tabs = const [
-      Tab(text: 'Summary'),
-      Tab(text: 'Report'),
-      Tab(text: 'Docs'),
+    final tabs = [
+      Tab(text: l10n.summary),
+      Tab(text: l10n.report),
+      Tab(text: l10n.docs),
       Tab(text: 'MCPs'),
-      Tab(text: 'Proposals'),
-      Tab(text: 'Execution'),
+      Tab(text: l10n.proposals),
+      Tab(text: l10n.execution),
+      Tab(text: l10n.isRussian ? 'Тред' : 'Thread'),
     ];
     return DefaultTabController(
       length: tabs.length,
@@ -847,7 +1145,7 @@ class _SessionWorkspace extends StatelessWidget {
                 children: [
                   IconButton(
                     onPressed: onBack,
-                    tooltip: 'Back to project',
+                    tooltip: l10n.backToProject,
                     icon: const Icon(Icons.arrow_back),
                   ),
                   Expanded(
@@ -893,6 +1191,7 @@ class _SessionWorkspace extends StatelessWidget {
                 final wide = constraints.maxWidth >= 1060;
                 final tabView = _SessionTabView(
                   session: session,
+                  threadRepository: threadRepository,
                   onSetProposalStatus: (proposal, status) =>
                       onSetProposalStatus(session, proposal, status),
                 );
@@ -937,15 +1236,18 @@ extension on SessionDetailRecord {
 class _SessionTabView extends StatelessWidget {
   const _SessionTabView({
     required this.session,
+    required this.threadRepository,
     required this.onSetProposalStatus,
   });
 
   final SessionDetailRecord session;
+  final NetrunnerThreadRepository threadRepository;
   final Future<void> Function(DocProposalSummaryRecord proposal, String status)
   onSetProposalStatus;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final report = session.structuredFinalReport;
     return TabBarView(
       children: [
@@ -953,33 +1255,47 @@ class _SessionTabView extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           children: [
             _Panel(
-              title: 'Session summary',
+              title: l10n.sessionSummary,
               child: _FactGrid(
                 entries: [
-                  ('Status', session.status),
+                  (
+                    l10n.isRussian ? 'Статус' : 'Status',
+                    l10n.status(session.status),
+                  ),
                   ('Backend', session.backend),
                   ('Model', session.model),
-                  ('Reasoning', session.reasoning),
+                  (
+                    l10n.isRussian ? 'Рассуждение' : 'Reasoning',
+                    session.reasoning,
+                  ),
                   (
                     'Write scope',
                     session.writeScope.isEmpty
-                        ? 'None declared'
+                        ? l10n.noneDeclared
                         : session.writeScope.join(', '),
                   ),
-                  ('Rework loops', session.reworkCount.toString()),
-                  ('Forced stops', session.forcedStopCount.toString()),
+                  (
+                    l10n.isRussian ? 'Циклы доработки' : 'Rework loops',
+                    session.reworkCount.toString(),
+                  ),
+                  (
+                    l10n.isRussian
+                        ? 'Принудительные остановки'
+                        : 'Forced stops',
+                    session.forcedStopCount.toString(),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             _WorkspaceNotice(
-              title: 'Review posture',
+              title: l10n.reviewPosture,
               message:
                   session.proposals.any(
                     (proposal) => proposal.status == 'pending',
                   )
-                  ? 'Pending proposals need an explicit approve or reject decision before closure.'
-                  : 'No pending doc proposals are blocking review right now.',
+                  ? l10n.pendingProposalNotice
+                  : l10n.noPendingProposalNotice,
               tone:
                   session.proposals.any(
                     (proposal) => proposal.status == 'pending',
@@ -993,41 +1309,41 @@ class _SessionTabView extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           children: [
             _Panel(
-              title: 'Structured report',
+              title: l10n.structuredReport,
               child: report == null
                   ? Text(
                       session.reportRaw.trim().isEmpty
-                          ? 'No structured final report has been stored yet.'
-                          : 'Only a raw report is available right now.',
+                          ? l10n.noStructuredReport
+                          : l10n.rawReportOnly,
                     )
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _LabeledList(
-                          title: 'Files changed',
+                          title: l10n.filesChanged,
                           values: report.filesChanged,
                         ),
                         const SizedBox(height: 12),
                         _LabeledList(
-                          title: 'Checks run',
+                          title: l10n.checksRun,
                           values: report.checksRun,
                         ),
                         const SizedBox(height: 12),
                         _LabeledList(
-                          title: 'Commands run',
+                          title: l10n.commandsRun,
                           values: report.commandsRun,
                         ),
                         const SizedBox(height: 12),
                         _LabeledList(
-                          title: 'Blockers',
+                          title: l10n.blockers,
                           values: report.blockers,
-                          emptyLabel: 'No blockers recorded.',
+                          emptyLabel: l10n.noBlockers,
                         ),
                         const SizedBox(height: 12),
                         _LabeledList(
-                          title: 'Residual risks',
+                          title: l10n.residualRisks,
                           values: report.residualRisks,
-                          emptyLabel: 'No residual risks recorded.',
+                          emptyLabel: l10n.noResidualRisks,
                         ),
                       ],
                     ),
@@ -1045,9 +1361,9 @@ class _SessionTabView extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           children: [
             _Panel(
-              title: 'Attached docs',
+              title: l10n.attachedDocs,
               child: session.attachedDocs.isEmpty
-                  ? const Text('No attached docs.')
+                  ? Text(l10n.noAttachedDocs)
                   : Column(
                       children: [
                         for (final doc in session.attachedDocs)
@@ -1061,9 +1377,9 @@ class _SessionTabView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _Panel(
-              title: 'Available docs',
+              title: l10n.availableDocs,
               child: session.availableDocs.isEmpty
-                  ? const Text('No project docs available for attachment.')
+                  ? Text(l10n.noAvailableDocs)
                   : Column(
                       children: [
                         for (final doc in session.availableDocs)
@@ -1084,9 +1400,9 @@ class _SessionTabView extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           children: [
             _Panel(
-              title: 'Assigned servers',
+              title: l10n.assignedServers,
               child: session.mcpServers.isEmpty
-                  ? const Text('No MCP assignments.')
+                  ? Text(l10n.noMcpAssignments)
                   : Column(
                       children: [
                         for (final server in session.mcpServers)
@@ -1104,9 +1420,9 @@ class _SessionTabView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _Panel(
-              title: 'Available servers',
+              title: l10n.availableServers,
               child: session.availableMcpServers.isEmpty
-                  ? const Text('No project MCP server catalog is available.')
+                  ? Text(l10n.noAvailableServers)
                   : Column(
                       children: [
                         for (final server in session.availableMcpServers)
@@ -1130,9 +1446,9 @@ class _SessionTabView extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           children: [
             _Panel(
-              title: 'Review proposals',
+              title: l10n.reviewProposals,
               child: session.proposals.isEmpty
-                  ? const Text('No proposals recorded.')
+                  ? Text(l10n.noProposals)
                   : Column(
                       children: [
                         for (final proposal in session.proposals)
@@ -1157,7 +1473,9 @@ class _SessionTabView extends StatelessWidget {
           children: [
             if (session.statusActionNote.isNotEmpty) ...[
               _WorkspaceNotice(
-                title: 'Status transition note',
+                title: l10n.isRussian
+                    ? 'Примечание к переходу статуса'
+                    : 'Status transition note',
                 message: session.statusActionNote,
                 tone: session.statusActionNote.toLowerCase().contains('frozen')
                     ? _WorkspaceNoticeTone.warning
@@ -1166,21 +1484,27 @@ class _SessionTabView extends StatelessWidget {
               const SizedBox(height: 16),
             ],
             _Panel(
-              title: 'Worker/process state',
+              title: l10n.isRussian
+                  ? 'Состояние воркеров/процессов'
+                  : 'Worker/process state',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     session.workerState.hasRunning
                         ? '${session.workerState.runningCount} active worker process${session.workerState.runningCount == 1 ? '' : 'es'}'
-                        : 'No active worker processes.',
+                        : l10n.noActiveWorkers,
                   ),
                   const SizedBox(height: 12),
                   if (session.workerState.processes.isEmpty)
                     Text(
                       session.workerState.hasRunning
-                          ? 'The bridge reports active work but no per-process detail rows.'
-                          : 'No worker process detail rows are available.',
+                          ? (l10n.isRussian
+                                ? 'Bridge сообщает об активной работе, но строк процессов нет.'
+                                : 'The bridge reports active work but no per-process detail rows.')
+                          : (l10n.isRussian
+                                ? 'Подробные строки процессов воркеров недоступны.'
+                                : 'No worker process detail rows are available.'),
                     )
                   else
                     for (final process in session.workerState.processes)
@@ -1194,24 +1518,29 @@ class _SessionTabView extends StatelessWidget {
                             'session #${process.localId}',
                         ],
                         body:
-                            'Started ${process.startedAt}\nUpdated ${process.updatedAt}',
+                            '${l10n.isRussian ? 'Запущен' : 'Started'} ${process.startedAt}\n${l10n.isRussian ? 'Обновлён' : 'Updated'} ${process.updatedAt}',
                         caption: process.stopReason.isNotEmpty
-                            ? 'Stop reason: ${process.stopReason}'
+                            ? '${l10n.isRussian ? 'Причина остановки' : 'Stop reason'}: ${process.stopReason}'
                             : process.stoppedAt.isNotEmpty
-                            ? 'Stopped at ${process.stoppedAt}'
+                            ? '${l10n.isRussian ? 'Остановлен в' : 'Stopped at'} ${process.stoppedAt}'
                             : null,
                       ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            const _WorkspaceNotice(
-              title: 'Launch controls',
-              message:
-                  'Launch and resume controls remain intentionally absent here until the GUI can truthfully route them into the explicit Fixer MCP launch flow.',
+            _WorkspaceNotice(
+              title: l10n.isRussian ? 'Управление запуском' : 'Launch controls',
+              message: l10n.isRussian
+                  ? 'Управление запуском и продолжением пока скрыто, пока GUI не сможет направлять его в явный процесс Fixer MCP.'
+                  : 'Launch and resume controls remain intentionally absent here until the GUI can truthfully route them into the explicit Fixer MCP launch flow.',
               tone: _WorkspaceNoticeTone.info,
             ),
           ],
+        ),
+        NetrunnerThreadPanel(
+          sessionId: session.id,
+          repository: threadRepository,
         ),
       ],
     );
@@ -1233,6 +1562,7 @@ class _SessionSummaryRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final pendingProposals = session.proposals
         .where((proposal) => proposal.status == 'pending')
         .length;
@@ -1246,7 +1576,9 @@ class _SessionSummaryRail extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _Panel(
-            title: 'Workspace rail',
+            title: l10n.isRussian
+                ? 'Панель рабочего пространства'
+                : 'Workspace rail',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1264,11 +1596,16 @@ class _SessionSummaryRail extends StatelessWidget {
                 const SizedBox(height: 12),
                 _FactGrid(
                   entries: [
-                    ('Docs', session.attachedDocs.length.toString()),
+                    (l10n.docs, session.attachedDocs.length.toString()),
                     ('MCPs', session.mcpServers.length.toString()),
-                    ('Pending proposals', pendingProposals.toString()),
                     (
-                      'Running workers',
+                      l10n.isRussian
+                          ? 'Ожидающие предложения'
+                          : 'Pending proposals',
+                      pendingProposals.toString(),
+                    ),
+                    (
+                      l10n.isRussian ? 'Работающие воркеры' : 'Running workers',
                       session.workerState.runningCount.toString(),
                     ),
                   ],
@@ -1281,20 +1618,22 @@ class _SessionSummaryRail extends StatelessWidget {
                     OutlinedButton.icon(
                       onPressed: onAttachDocs,
                       icon: const Icon(Icons.library_books_outlined),
-                      label: const Text('Attach docs'),
+                      label: Text(l10n.attachDocs),
                     ),
                     OutlinedButton.icon(
                       onPressed: onAssignMcpServers,
                       icon: const Icon(Icons.extension_outlined),
-                      label: const Text('Assign MCPs'),
+                      label: Text(l10n.assignMcps),
                     ),
                     OutlinedButton.icon(
                       onPressed: onChangeStatus,
                       icon: const Icon(Icons.swap_horiz),
                       label: Text(
                         onChangeStatus == null
-                            ? 'Status locked'
-                            : 'Change status',
+                            ? (l10n.isRussian
+                                  ? 'Статус заблокирован'
+                                  : 'Status locked')
+                            : l10n.changeStatus,
                       ),
                     ),
                   ],
@@ -1304,10 +1643,14 @@ class _SessionSummaryRail extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _WorkspaceNotice(
-            title: pendingProposals > 0 ? 'Review needed' : 'Review state',
+            title: pendingProposals > 0
+                ? (l10n.isRussian ? 'Нужна проверка' : 'Review needed')
+                : (l10n.isRussian ? 'Состояние проверки' : 'Review state'),
             message: pendingProposals > 0
                 ? '$pendingProposals proposal${pendingProposals == 1 ? ' is' : 's are'} waiting for an explicit decision.'
-                : 'No pending proposal decisions are waiting in this session.',
+                : (l10n.isRussian
+                      ? 'В этой сессии нет ожидающих решений по предложениям.'
+                      : 'No pending proposal decisions are waiting in this session.'),
             tone: pendingProposals > 0
                 ? _WorkspaceNoticeTone.warning
                 : _WorkspaceNoticeTone.info,
@@ -2464,7 +2807,7 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        label,
+        AppLocalizations.of(context).status(label),
         style: theme.textTheme.labelMedium?.copyWith(
           color: theme.colorScheme.onSecondaryContainer,
           fontWeight: FontWeight.w700,
@@ -2528,7 +2871,11 @@ class _FactGrid extends StatelessWidget {
             width: 170,
             child: _MetricChip(
               label: entry.$1,
-              value: entry.$2.isEmpty ? 'Not recorded' : entry.$2,
+              value: entry.$2.isEmpty
+                  ? (AppLocalizations.of(context).isRussian
+                        ? 'Нет данных'
+                        : 'Not recorded')
+                  : entry.$2,
             ),
           ),
       ],
@@ -2614,6 +2961,7 @@ class _ProposalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return _ReadableRecordCard(
       title: '#${proposal.localId} ${proposal.proposedDocType}',
       badges: [
@@ -2624,21 +2972,17 @@ class _ProposalCard extends StatelessWidget {
       body: proposal.proposedContent,
       caption: proposal.status == 'pending'
           ? null
-          : 'Review decision already recorded.',
+          : (l10n.isRussian
+                ? 'Решение по проверке уже записано.'
+                : 'Review decision already recorded.'),
       emphasized: proposal.status == 'pending',
       child: proposal.status == 'pending'
           ? Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton(
-                  onPressed: onApprove,
-                  child: const Text('Approve'),
-                ),
-                OutlinedButton(
-                  onPressed: onReject,
-                  child: const Text('Reject'),
-                ),
+                FilledButton(onPressed: onApprove, child: Text(l10n.approve)),
+                OutlinedButton(onPressed: onReject, child: Text(l10n.reject)),
               ],
             )
           : null,
@@ -2723,6 +3067,7 @@ class _LabeledList extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _ProjectCard extends StatelessWidget {
   const _ProjectCard({
     required this.project,
@@ -2775,7 +3120,9 @@ class _ProjectCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 project.latestActivityLabel.isEmpty
-                    ? 'No recent activity'
+                    ? (AppLocalizations.of(context).isRussian
+                          ? 'Недавней активности нет'
+                          : 'No recent activity')
                     : project.latestActivityLabel,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -2858,8 +3205,9 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Create Netrunner task'),
+      title: Text(l10n.createNetrunnerTask),
       content: SizedBox(
         width: 460,
         child: Column(
@@ -2868,18 +3216,23 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
             TextField(
               controller: _descriptionController,
               maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'Task description',
-                hintText:
-                    'Describe the operator action task for the new session.',
+              decoration: InputDecoration(
+                labelText: l10n.isRussian
+                    ? 'Описание задачи'
+                    : 'Task description',
+                hintText: l10n.isRussian
+                    ? 'Опишите операторскую задачу для новой сессии.'
+                    : 'Describe the operator action task for the new session.',
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _scopeController,
-              decoration: const InputDecoration(
-                labelText: 'Write scope',
-                hintText: 'Comma-separated paths, optional',
+              decoration: InputDecoration(
+                labelText: l10n.isRussian ? 'Область записи' : 'Write scope',
+                hintText: l10n.isRussian
+                    ? 'Пути через запятую, необязательно'
+                    : 'Comma-separated paths, optional',
               ),
             ),
           ],
@@ -2888,7 +3241,7 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.isRussian ? 'Отмена' : 'Cancel'),
         ),
         FilledButton(
           onPressed: () {
@@ -2908,7 +3261,7 @@ class _CreateTaskDialogState extends State<_CreateTaskDialog> {
               ),
             );
           },
-          child: const Text('Create'),
+          child: Text(l10n.isRussian ? 'Создать' : 'Create'),
         ),
       ],
     );

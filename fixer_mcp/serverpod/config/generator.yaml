@@ -1,4 +1,6 @@
 type: server
 
+experimental_features:
+  columnOverride: true
+
 client_package_path: ../dashboard_client
-server_test_tools_path: test/integration/test_tools

@@ -1,0 +1,158 @@
+flowchart LR
+  %% Generated from feature_registry.json. Visible node IDs are canonical.
+  subgraph DOMAIN_CONTROL_PLANE["Control plane"]
+    R1_WAVE_001["R1-WAVE-001<br/>Wave Engine v2 core lifecycle"]
+    R1_WAVE_002["R1-WAVE-002<br/>Wave observability, presets, and compute guardrails"]
+  end
+  subgraph DOMAIN_OPERATOR_EXPERIENCE["Operator experience"]
+    R1_MC_001["R1-MC-001<br/>Mission Control portfolio registry and visual maps"]
+    R1_MC_002["R1-MC-002<br/>Fixer Studio Mission Control surface"]
+    R1_TERM_001["R1-TERM-001<br/>Rust Fixer terminal"]
+    R1_STUDIO_001["R1-STUDIO-001<br/>Canonical Fixer Studio product surfaces"]
+    R1_SHIPFLOW_001["R1-SHIPFLOW-001<br/>ShipFlow manager-facing slice"]
+  end
+  subgraph DOMAIN_MODELS_AND_GATEWAY["Models and gateway"]
+    R1_LIMITS_001["R1-LIMITS-001<br/>AI Limits integration"]
+    R1_GATEWAY_001["R1-GATEWAY-001<br/>Fixer AI Gateway"]
+    R1_MODELS_001["R1-MODELS-001<br/>Model routing, forecasting, and benchmarking"]
+  end
+  subgraph DOMAIN_COMMERCE["Commerce"]
+    R1_SUB_001["R1-SUB-001<br/>Optional subscription and entitlements"]
+    R1_PAY_001["R1-PAY-001<br/>Web and Telegram payment rails"]
+  end
+  subgraph DOMAIN_COMPUTE["Compute"]
+    R1_COMPUTE_001["R1-COMPUTE-001<br/>Fixer Compute Gateway"]
+    R1_POOL_001["R1-POOL-001<br/>Opt-in decentralized compute pool"]
+  end
+  subgraph DOMAIN_IDENTITY_AND_ECONOMY["Identity and economy"]
+    R1_IDENTITY_001["R1-IDENTITY-001<br/>Identity, tenancy, and separated balances"]
+    R1_WALLET_001["R1-WALLET-001<br/>Non-custodial project wallets and real signature gate"]
+    R1_ECON_001["R1-ECON-001<br/>Project economy, budgets, escrow, and settlement"]
+    R1_GOV_001["R1-GOV-001<br/>Public-project ownership and governance"]
+  end
+  subgraph DOMAIN_NETWORK_AND_MARKET["Network and market"]
+    R1_EXCHANGE_001["R1-EXCHANGE-001<br/>Governed Fixer Exchange"]
+    R1_MARKET_001["R1-MARKET-001<br/>A2A discovery, investment, and project market"]
+  end
+  subgraph DOMAIN_MEMORY_AND_REPUTATION["Memory and reputation"]
+    R1_MEMORY_001["R1-MEMORY-001<br/>Privacy-safe memory, reputation, and outcome benchmarking"]
+  end
+  subgraph DOMAIN_AGENT_DISCOVERY["Agent discovery"]
+    R1_AGENTS_001["R1-AGENTS-001<br/>AGENTS_MANIFEST compact"]
+    R1_GEO_001["R1-GEO-001<br/>Multilingual GEO and agent-readable discovery"]
+  end
+  subgraph DOMAIN_PRODUCT_AND_PRODUCTION["Product and production"]
+    R1_LANDING_001["R1-LANDING-001<br/>Combined Fixer landing and brand"]
+    R1_PROD_001["R1-PROD-001<br/>Production security, tenancy, release, and operations"]
+    R1_DOCS_001["R1-DOCS-001<br/>Canonical product documentation and R1 completion audit"]
+  end
+  subgraph ARCH_GATES["Architect gates"]
+    ARCH_RESTART_001{"ARCH-RESTART-001<br/>MCP binary restart and build-epoch confirmation"}
+    ARCH_WALLET_001{"ARCH-WALLET-001<br/>Real-wallet funding and signature"}
+    ARCH_EXCHANGE_FEE_001{"ARCH-EXCHANGE-FEE-001<br/>Exchange settlement fee"}
+    ARCH_PAYMENTS_001{"ARCH-PAYMENTS-001<br/>Payment rails and commercial terms"}
+    ARCH_COMPUTE_001{"ARCH-COMPUTE-001<br/>Compute contracting and geography"}
+    ARCH_GOVERNANCE_001{"ARCH-GOVERNANCE-001<br/>Public-project legal wrapper"}
+    ARCH_BRAND_001{"ARCH-BRAND-001<br/>Product name and brand"}
+  end
+  R1_WAVE_001 -.-> ARCH_RESTART_001
+  R1_WAVE_001 --> R1_WAVE_002
+  R1_MC_002 --> R1_WAVE_002
+  R1_GATEWAY_001 --> R1_WAVE_002
+  R1_COMPUTE_001 --> R1_WAVE_002
+  R1_WAVE_001 --> R1_MC_001
+  R1_MC_001 --> R1_MC_002
+  R1_STUDIO_001 --> R1_MC_002
+  R1_WAVE_001 --> R1_TERM_001
+  R1_MC_002 --> R1_LIMITS_001
+  R1_GATEWAY_001 --> R1_LIMITS_001
+  R1_MC_001 --> R1_GATEWAY_001
+  R1_IDENTITY_001 --> R1_GATEWAY_001
+  R1_GATEWAY_001 -.-> ARCH_PAYMENTS_001
+  R1_GATEWAY_001 --> R1_MODELS_001
+  R1_MEMORY_001 --> R1_MODELS_001
+  R1_GATEWAY_001 --> R1_SUB_001
+  R1_IDENTITY_001 --> R1_SUB_001
+  R1_PAY_001 --> R1_SUB_001
+  R1_SUB_001 -.-> ARCH_PAYMENTS_001
+  R1_IDENTITY_001 --> R1_PAY_001
+  R1_PAY_001 -.-> ARCH_PAYMENTS_001
+  R1_MC_001 --> R1_COMPUTE_001
+  R1_IDENTITY_001 --> R1_COMPUTE_001
+  R1_ECON_001 --> R1_COMPUTE_001
+  R1_COMPUTE_001 -.-> ARCH_COMPUTE_001
+  R1_COMPUTE_001 --> R1_POOL_001
+  R1_MODELS_001 --> R1_POOL_001
+  R1_POOL_001 -.-> ARCH_COMPUTE_001
+  R1_MC_001 --> R1_IDENTITY_001
+  R1_IDENTITY_001 --> R1_WALLET_001
+  R1_ECON_001 --> R1_WALLET_001
+  R1_PROD_001 --> R1_WALLET_001
+  R1_WALLET_001 -.-> ARCH_WALLET_001
+  R1_IDENTITY_001 --> R1_ECON_001
+  R1_IDENTITY_001 --> R1_GOV_001
+  R1_ECON_001 --> R1_GOV_001
+  R1_GOV_001 -.-> ARCH_GOVERNANCE_001
+  R1_ECON_001 --> R1_EXCHANGE_001
+  R1_GOV_001 --> R1_EXCHANGE_001
+  R1_PAY_001 --> R1_EXCHANGE_001
+  R1_EXCHANGE_001 -.-> ARCH_EXCHANGE_FEE_001
+  R1_EXCHANGE_001 -.-> ARCH_GOVERNANCE_001
+  R1_EXCHANGE_001 --> R1_MARKET_001
+  R1_MEMORY_001 --> R1_MARKET_001
+  R1_WALLET_001 --> R1_MARKET_001
+  R1_MARKET_001 -.-> ARCH_GOVERNANCE_001
+  R1_MARKET_001 -.-> ARCH_WALLET_001
+  R1_MARKET_001 -.-> ARCH_PAYMENTS_001
+  R1_IDENTITY_001 --> R1_MEMORY_001
+  R1_PROD_001 --> R1_MEMORY_001
+  R1_MC_001 --> R1_STUDIO_001
+  R1_MC_001 --> R1_SHIPFLOW_001
+  R1_WAVE_001 --> R1_SHIPFLOW_001
+  R1_ECON_001 --> R1_SHIPFLOW_001
+  R1_GEO_001 --> R1_AGENTS_001
+  R1_PROD_001 --> R1_AGENTS_001
+  R1_LANDING_001 --> R1_GEO_001
+  R1_MC_001 --> R1_GEO_001
+  R1_STUDIO_001 --> R1_LANDING_001
+  R1_SUB_001 --> R1_LANDING_001
+  R1_EXCHANGE_001 --> R1_LANDING_001
+  R1_LANDING_001 -.-> ARCH_BRAND_001
+  R1_LANDING_001 -.-> ARCH_EXCHANGE_FEE_001
+  R1_WAVE_001 --> R1_PROD_001
+  R1_IDENTITY_001 --> R1_PROD_001
+  R1_MC_001 --> R1_DOCS_001
+  R1_PROD_001 --> R1_DOCS_001
+  R1_GEO_001 --> R1_DOCS_001
+  classDef verified fill:#d7f5df,stroke:#16794a,color:#102a1c
+  classDef active fill:#dbeafe,stroke:#2563eb,color:#172554
+  classDef planned fill:#f3f4f6,stroke:#6b7280,color:#111827
+  classDef research fill:#fff1cc,stroke:#b7791f,color:#3d2b05
+  classDef gate fill:#ffe4e6,stroke:#be123c,color:#4c0519
+  class R1_WAVE_001 verified
+  class R1_WAVE_002 planned
+  class R1_MC_001 verified
+  class R1_MC_002 planned
+  class R1_TERM_001 research
+  class R1_LIMITS_001 planned
+  class R1_GATEWAY_001 planned
+  class R1_MODELS_001 planned
+  class R1_SUB_001 planned
+  class R1_PAY_001 research
+  class R1_COMPUTE_001 planned
+  class R1_POOL_001 research
+  class R1_IDENTITY_001 planned
+  class R1_WALLET_001 planned
+  class R1_ECON_001 active
+  class R1_GOV_001 research
+  class R1_EXCHANGE_001 planned
+  class R1_MARKET_001 planned
+  class R1_MEMORY_001 planned
+  class R1_STUDIO_001 active
+  class R1_SHIPFLOW_001 active
+  class R1_AGENTS_001 planned
+  class R1_GEO_001 research
+  class R1_LANDING_001 planned
+  class R1_PROD_001 planned
+  class R1_DOCS_001 planned
+  class ARCH_RESTART_001,ARCH_WALLET_001,ARCH_EXCHANGE_FEE_001,ARCH_PAYMENTS_001,ARCH_COMPUTE_001,ARCH_GOVERNANCE_001,ARCH_BRAND_001 gate

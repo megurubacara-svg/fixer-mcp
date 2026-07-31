@@ -146,7 +146,7 @@ class DashboardRuntimeEndpoint extends Endpoint {
   Uri _dashboardApiUri(String path) {
     final base = _baseUrl(
       Platform.environment['FIXER_DASHBOARD_API_BASE_URL'],
-      'http://127.0.0.1:8090',
+      'http://127.0.0.1:18090',
     );
     return Uri.parse('$base$path');
   }

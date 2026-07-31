@@ -47,6 +47,36 @@ NETRUNNER_KIND_ACCEPTANCE = "acceptance"
 NETRUNNER_MANUAL_SKILL_NAME = "run-manual-netrunner"
 NETRUNNER_ACCEPTANCE_SKILL_NAME = "run-manual-acceptance-netrunner"
 
+FIXER_PROVIDER_RULE_MARKER = "[FIXER_PROVIDER_ORCHESTRATION_RULE]"
+
+_FIXER_PROVIDER_ORCHESTRATION_RULES = {
+    "codex": (
+        "CRITICAL: Do not use Codex's built-in agent-thread controls "
+        "(`/agent`, `/subagents`) or its task/cloud/scheduled-task orchestration. "
+        "For all work that would use those features, use Fixer MCP Netrunner waves."
+    ),
+    "kimi-code": (
+        "CRITICAL: Do not use Kimi Code's built-in `Agent` tool or background "
+        "`Shell` tasks with `run_in_background=true`. For all work that would use "
+        "those features, use Fixer MCP Netrunner waves."
+    ),
+    "kimi-code-native": (
+        "CRITICAL: Do not use Kimi Code's built-in `Agent` tool or background "
+        "`Shell` tasks with `run_in_background=true`. For all work that would use "
+        "those features, use Fixer MCP Netrunner waves."
+    ),
+    "claude": (
+        "CRITICAL: Do not use Claude Code's built-in `Agent` tool, `claude agents`, "
+        "or `--bg` background sessions. For all work that would use those features, "
+        "use Fixer MCP Netrunner waves."
+    ),
+    "antigravity": (
+        "CRITICAL: Don't use Antigravity's built-in `subagents`, `schedule`, or "
+        "`manage_task` features. For all work that would use those features, use "
+        "Fixer MCP Netrunner waves."
+    ),
+}
+
 
 def _normalize_names(values: Sequence[str]) -> list[str]:
     seen: set[str] = set()
@@ -187,11 +217,30 @@ def _build_mcp_how_to_map(
     return how_to_by_name
 
 
+def fixer_provider_orchestration_rule(backend: str | None) -> str:
+    normalized = (backend or "").strip().lower()
+    if normalized == "agy":
+        normalized = "antigravity"
+    return _FIXER_PROVIDER_ORCHESTRATION_RULES.get(
+        normalized,
+        (
+            "CRITICAL: Do not use the current provider's built-in subagent, "
+            "delegation, scheduling, or task-management features. For all work "
+            "that would use those features, use Fixer MCP Netrunner waves."
+        ),
+    )
+
+
+def materialize_fixer_provider_prompt(prompt: str, backend: str | None) -> str:
+    return prompt.replace(FIXER_PROVIDER_RULE_MARKER, fixer_provider_orchestration_rule(backend))
+
+
 def _build_fixer_prompt() -> str:
     return textwrap.dedent(
         """
         Activate skill `$init-fixer` immediately.
         Fixer is the project-scoped orchestrator role in the current Fixer MCP system.
+        [FIXER_PROVIDER_ORCHESTRATION_RULE]
         Execute only its initialization checklist first, then stop and report status.
         """
     ).strip()

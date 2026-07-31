@@ -339,7 +339,12 @@ def launch_netrunner(
         print(f"[fixer-wire] resuming {launch_selection.backend} session id: {resume_external_session_id}")
     print(f"[fixer-wire] netrunner MCP selection: {', '.join(selected_mcp_names) if selected_mcp_names else 'none'}")
     print("[fixer-wire] command:", codex_cmd)
-    if launch_selection.backend == "kimi-code" and prompt and not resume_external_session_id and not dry_run:
+    if (
+        launch_selection.backend in ("kimi-code", "kimi-code-native")
+        and prompt
+        and not resume_external_session_id
+        and not dry_run
+    ):
         print("[fixer-wire] kimi shell mode cannot auto-submit; paste the following into the Kimi TUI:")
         print(prompt)
         try:

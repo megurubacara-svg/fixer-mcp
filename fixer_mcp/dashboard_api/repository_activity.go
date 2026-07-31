@@ -3,7 +3,111 @@ package dashboardapi
 import (
 	"context"
 	"fmt"
+	"strings"
 )
+
+// projectActivity is the durable activity data used by the home project rail.
+// Keep this separate from the legacy ProjectCard shape so the ordering logic
+// can be adopted by the new project-card module without changing project
+// overview payloads owned by the downstream integration slice.
+type projectActivity struct {
+	LastActivityAt  string
+	ActiveWaveCount int
+}
+
+func (r *Repository) loadProjectActivity(ctx context.Context) (map[int]projectActivity, error) {
+	activity := map[int]projectActivity{}
+
+	// Each source is optional for compatibility with older fixer databases and
+	// the small dashboard fixtures used by repository tests.
+	queries := []string{}
+	if r.tableExists(ctx, "netrunner_session_log") {
+		queries = append(queries, `
+			SELECT project_id, MAX(COALESCE(created_at, ''))
+			FROM netrunner_session_log
+			GROUP BY project_id`)
+	}
+	if r.tableExists(ctx, "autonomous_run_status") {
+		queries = append(queries, `
+			SELECT project_id, MAX(COALESCE(updated_at, ''))
+			FROM autonomous_run_status
+			GROUP BY project_id`)
+	}
+	if r.tableExists(ctx, "worker_process") {
+		queries = append(queries, `
+			SELECT project_id, MAX(COALESCE(updated_at, ''))
+			FROM worker_process
+			GROUP BY project_id`)
+	}
+	if r.tableExists(ctx, "parallel_wave") {
+		queries = append(queries, `
+			SELECT project_id, MAX(COALESCE(updated_at, ''))
+			FROM parallel_wave
+			GROUP BY project_id`)
+	}
+
+	for _, query := range queries {
+		rows, err := r.db.QueryContext(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var projectID int
+			var timestamp string
+			if err := rows.Scan(&projectID, &timestamp); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if timestamp > activity[projectID].LastActivityAt {
+				entry := activity[projectID]
+				entry.LastActivityAt = timestamp
+				activity[projectID] = entry
+			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	if r.tableExists(ctx, "parallel_wave") {
+		rows, err := r.db.QueryContext(ctx, `
+			SELECT project_id, COUNT(*)
+			FROM parallel_wave
+			WHERE status NOT IN ('completed', 'failed', 'stopped', 'cleaned')
+			GROUP BY project_id`)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var projectID int
+			var count int
+			if err := rows.Scan(&projectID, &count); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			entry := activity[projectID]
+			entry.ActiveWaveCount = count
+			activity[projectID] = entry
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	return activity, nil
+}
+
+func hasProjectActivity(timestamp string) bool {
+	return strings.TrimSpace(timestamp) != ""
+}
 
 func (r *Repository) loadAutonomousStatuses(ctx context.Context) (map[int]*AutonomousStatus, AutonomousSummary, error) {
 	if !r.tableExists(ctx, "autonomous_run_status") {

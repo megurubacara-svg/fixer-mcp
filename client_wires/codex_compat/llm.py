@@ -22,6 +22,7 @@ MODEL_REASONING_OPTIONS: Dict[str, List[Tuple[str, str, str]]] = {
         ("Medium", "medium", "Balances speed and reasoning depth for everyday tasks"),
         ("High", "high", "Greater reasoning depth for complex problems"),
         ("Extra High", "xhigh", "Extra high reasoning depth for complex problems"),
+        ("Ultra", "ultra", "Maximum reasoning depth for the most complex problems"),
     ],
     "gpt-5.6-terra": [
         ("Low", "low", "Fast responses with lighter reasoning"),

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -125,6 +124,29 @@ func resolveSessionLaunchConfig(sessionID int, projectID int, requestedBackend s
 	if err != nil {
 		return sessionLaunchConfig{}, err
 	}
+	resolved, err := resolveSessionLaunchConfigValues(currentConfig, requestedBackend, requestedModel, requestedReasoning)
+	if err != nil {
+		return sessionLaunchConfig{}, err
+	}
+
+	if _, err := db.Exec(
+		`UPDATE session
+		 SET cli_backend = ?, cli_model = ?, cli_reasoning = ?
+		 WHERE id = ? AND project_id = ?`,
+		resolved.Backend,
+		resolved.Model,
+		resolved.Reasoning,
+		sessionID,
+		projectID,
+	); err != nil {
+		return sessionLaunchConfig{}, err
+	}
+
+	return resolved, nil
+}
+
+func resolveSessionLaunchConfigValues(currentConfig sessionLaunchConfig, requestedBackend string, requestedModel string, requestedReasoning string) (sessionLaunchConfig, error) {
+	var err error
 	resolvedBackend := currentConfig.Backend
 	if strings.TrimSpace(requestedBackend) != "" {
 		resolvedBackend, err = normalizeCliBackend(requestedBackend)
@@ -163,6 +185,9 @@ func resolveSessionLaunchConfig(sessionID int, projectID int, requestedBackend s
 	if err := validateCliModelForBackend(finalBackend, finalModel); err != nil {
 		return sessionLaunchConfig{}, err
 	}
+	if err := validateCliBackendAvailability(finalBackend); err != nil {
+		return sessionLaunchConfig{}, err
+	}
 
 	finalReasoning := currentConfig.Reasoning
 	if !currentConfig.Started && finalBackend != currentConfig.Backend {
@@ -175,19 +200,6 @@ func resolveSessionLaunchConfig(sessionID int, projectID int, requestedBackend s
 		finalReasoning = defaultCliReasoningForBackend(finalBackend)
 	}
 	if err := validateCliReasoningForBackend(finalBackend, finalReasoning); err != nil {
-		return sessionLaunchConfig{}, err
-	}
-
-	if _, err := db.Exec(
-		`UPDATE session
-		 SET cli_backend = ?, cli_model = ?, cli_reasoning = ?
-		 WHERE id = ? AND project_id = ?`,
-		finalBackend,
-		finalModel,
-		finalReasoning,
-		sessionID,
-		projectID,
-	); err != nil {
 		return sessionLaunchConfig{}, err
 	}
 
@@ -218,18 +230,6 @@ func waitForSessionExternalID(ctx context.Context, sessionID int, backend string
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-}
-
-func explicitLaunchArtifacts(projectCWD string, sessionID int, backend string) (string, string, string, error) {
-	logDir := filepath.Join(projectCWD, ".codex", "headless_netrunner_logs")
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return "", "", "", fmt.Errorf("failed to prepare explicit launch log dir: %v", err)
-	}
-	suffix := strconv.FormatInt(time.Now().Unix(), 10)
-	headlessLogPath := filepath.Join(logDir, fmt.Sprintf("session-%d-%s-%s.log", sessionID, backend, suffix))
-	launcherLogPath := filepath.Join(logDir, fmt.Sprintf("session-%d-launcher-%s.log", sessionID, suffix))
-	metadataPath := filepath.Join(logDir, fmt.Sprintf("session-%d-launcher-%s.json", sessionID, suffix))
-	return headlessLogPath, launcherLogPath, metadataPath, nil
 }
 
 func readExplicitLaunchWorkerMetadata(metadataPath string) (explicitLaunchWorkerMetadata, error) {
@@ -431,34 +431,6 @@ func StopActiveWorkerProcesses(ctx context.Context, req *mcp.CallToolRequest, in
 	}, nil
 }
 
-type ExplicitNetrunnerLaunchMetadata struct {
-	SessionId          int      `json:"session_id"`
-	ProjectCwd         string   `json:"project_cwd"`
-	LauncherScript     string   `json:"launcher_script"`
-	Backend            string   `json:"backend"`
-	Model              string   `json:"model,omitempty"`
-	Reasoning          string   `json:"reasoning,omitempty"`
-	ExternalSessionId  string   `json:"external_session_id,omitempty"`
-	CodexSessionId     string   `json:"codex_session_id,omitempty"`
-	SpawnedBackground  bool     `json:"spawned_background"`
-	DeclaredWriteScope []string `json:"declared_write_scope"`
-}
-
-type LaunchExplicitNetrunnerInput struct {
-	SessionId                  int    `json:"session_id" jsonschema:"Project-scoped session ID to launch over the explicit MCP-mounted wire path."`
-	FixerSessionId             string `json:"fixer_session_id,omitempty" jsonschema:"Optional current Fixer Codex session ID to pass into the explicit wire runtime."`
-	SessionReuseOverrideReason string `json:"session_reuse_override_reason,omitempty" jsonschema:"Optional explicit reason to relaunch a session that should normally be replaced by a repair fork after repeated rework or a forced stop."`
-	Backend                    string `json:"backend,omitempty" jsonschema:"Optional CLI backend to launch for this session. Supported: codex, droid, antigravity (agy alias)."`
-	Model                      string `json:"model,omitempty" jsonschema:"Optional backend-specific model selection to persist for this session."`
-	Reasoning                  string `json:"reasoning,omitempty" jsonschema:"Optional backend-specific reasoning setting to persist for this session."`
-	PlaywrightRuntimeMode      string `json:"playwright_runtime_mode,omitempty" jsonschema:"Optional validated Playwright MCP runtime mode for Codex launches. Supported: default, headless, chrome, headless-profile. headless-profile uses the persistent login profile in an isolated agent-owned context, attaching to an existing loopback-CDP Chrome or launching owned headless Chrome when free."`
-}
-
-type LaunchExplicitNetrunnerOutput struct {
-	Status string                          `json:"status"`
-	Launch ExplicitNetrunnerLaunchMetadata `json:"launch"`
-}
-
 type WaitForNetrunnerSessionInput struct {
 	SessionId           int `json:"session_id" jsonschema:"Project-scoped session ID to wait on."`
 	TimeoutSeconds      int `json:"timeout_seconds,omitempty" jsonschema:"Optional wait timeout in seconds. Default 7200; max 21600."`
@@ -527,61 +499,6 @@ type WaitForNetrunnerSessionsOutput struct {
 	Result ExplicitNetrunnerWaitAnyResult `json:"result"`
 }
 
-type LaunchAndWaitNetrunnerInput struct {
-	SessionId                  int    `json:"session_id" jsonschema:"Project-scoped session ID to launch and then wait on over the explicit MCP-mounted wire path."`
-	FixerSessionId             string `json:"fixer_session_id,omitempty" jsonschema:"Optional current Fixer Codex session ID to pass into the explicit wire runtime."`
-	SessionReuseOverrideReason string `json:"session_reuse_override_reason,omitempty" jsonschema:"Optional explicit reason to relaunch a session that should normally be replaced by a repair fork after repeated rework or a forced stop."`
-	Backend                    string `json:"backend,omitempty" jsonschema:"Optional CLI backend to launch for this session. Supported: codex, droid, antigravity (agy alias)."`
-	Model                      string `json:"model,omitempty" jsonschema:"Optional backend-specific model selection to persist for this session."`
-	Reasoning                  string `json:"reasoning,omitempty" jsonschema:"Optional backend-specific reasoning setting to persist for this session."`
-	PlaywrightRuntimeMode      string `json:"playwright_runtime_mode,omitempty" jsonschema:"Optional validated Playwright MCP runtime mode for Codex launches. Supported: default, headless, chrome, headless-profile. headless-profile uses the persistent login profile in an isolated agent-owned context, attaching to an existing loopback-CDP Chrome or launching owned headless Chrome when free."`
-	TimeoutSeconds             int    `json:"timeout_seconds,omitempty" jsonschema:"Optional wait timeout in seconds. Default 7200; max 21600."`
-	PollIntervalSeconds        int    `json:"poll_interval_seconds,omitempty" jsonschema:"Optional poll interval in seconds. Default 5; max 60."`
-}
-
-type LaunchAndWaitNetrunnerOutput struct {
-	Status string                          `json:"status"`
-	Launch ExplicitNetrunnerLaunchMetadata `json:"launch"`
-	Wait   ExplicitNetrunnerWaitResult     `json:"wait"`
-}
-
-type activeLaunchSession struct {
-	LocalSessionID     int
-	GlobalSessionID    int
-	DeclaredWriteScope []string
-}
-
-func loadActiveLaunchSessions(projectID int) ([]activeLaunchSession, error) {
-	processes, err := listRunningWorkerProcesses(projectID, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	seen := make(map[int]struct{}, len(processes))
-	activeSessions := make([]activeLaunchSession, 0, len(processes))
-	for _, process := range processes {
-		if _, exists := seen[process.SessionID]; exists {
-			continue
-		}
-		seen[process.SessionID] = struct{}{}
-
-		state, err := fetchSessionLifecycleState(process.SessionID, projectID)
-		if err != nil {
-			return nil, err
-		}
-		localSessionID, err := projectScopedSessionIDFromGlobal(process.SessionID, projectID)
-		if err != nil {
-			return nil, err
-		}
-		activeSessions = append(activeSessions, activeLaunchSession{
-			LocalSessionID:     localSessionID,
-			GlobalSessionID:    process.SessionID,
-			DeclaredWriteScope: state.DeclaredWriteScope,
-		})
-	}
-	return activeSessions, nil
-}
-
 func waitFollowUpDecision(control orchestrationControl, launchEpoch int) (bool, string) {
 	reasons := []string{}
 	if control.OrchestrationFrozen {
@@ -594,206 +511,6 @@ func waitFollowUpDecision(control orchestrationControl, launchEpoch int) (bool, 
 		return false, strings.Join(reasons, ",")
 	}
 	return true, ""
-}
-
-func launchExplicitNetrunnerWithMetadata(ctx context.Context, input LaunchExplicitNetrunnerInput) (ExplicitNetrunnerLaunchMetadata, error) {
-	playwrightRuntimeMode, err := normalizeExplicitPlaywrightRuntimeMode(input.PlaywrightRuntimeMode)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, err
-	}
-	sessionID := input.SessionId
-	globalSessionID, err := globalSessionIDFromProjectScoped(sessionID, authorizedProjectId)
-	if err == sql.ErrNoRows {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("session not found in current project")
-	}
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("DB query error: %v", err)
-	}
-
-	belongs, err := sessionBelongsToProject(globalSessionID, authorizedProjectId)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("DB query error: %v", err)
-	}
-	if !belongs {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("session not found in current project")
-	}
-
-	sessionState, err := fetchSessionLifecycleState(globalSessionID, authorizedProjectId)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("DB query error: %v", err)
-	}
-	if len(sessionState.DeclaredWriteScope) == 0 {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("session %d must declare a non-empty write scope before explicit launch", sessionID)
-	}
-	if shouldRecommendRepairFork(sessionState.ReworkCount, sessionState.ForcedStopCount, sessionState.RepairSourceSessionID) &&
-		strings.TrimSpace(input.SessionReuseOverrideReason) == "" {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf(
-			"session %d should be replaced with fork_repair_session_from before relaunch (rework_count=%d forced_stop_count=%d); provide session_reuse_override_reason to reuse it intentionally",
-			sessionID,
-			sessionState.ReworkCount,
-			sessionState.ForcedStopCount,
-		)
-	}
-
-	activeSessions, err := loadActiveLaunchSessions(authorizedProjectId)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed to inspect active worker processes: %v", err)
-	}
-	if len(activeSessions) > 0 {
-		for _, activeSession := range activeSessions {
-			if activeSession.GlobalSessionID == globalSessionID {
-				return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("session %d already has an active worker process", sessionID)
-			}
-		}
-	}
-
-	launchConfig, err := resolveSessionLaunchConfig(globalSessionID, authorizedProjectId, input.Backend, input.Model, input.Reasoning)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed to resolve session launch backend: %v", err)
-	}
-
-	projectCWD, err := projectCWDFromID(authorizedProjectId)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed to resolve project cwd: %v", err)
-	}
-
-	launcherScript, err := resolveExplicitLauncherScript()
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, err
-	}
-	headlessLogPath, launcherLogPath, metadataPath, err := explicitLaunchArtifacts(projectCWD, sessionID, launchConfig.Backend)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, err
-	}
-
-	commandArgs := []string{
-		launcherScript,
-		"launch-netrunner",
-		"--cwd",
-		projectCWD,
-		"--session-id",
-		fmt.Sprintf("%d", sessionID),
-	}
-	if trimmedFixerSessionID := strings.TrimSpace(input.FixerSessionId); trimmedFixerSessionID != "" {
-		commandArgs = append(commandArgs, "--fixer-session-id", trimmedFixerSessionID)
-	}
-	commandArgs = append(commandArgs, "--backend", launchConfig.Backend)
-	if strings.TrimSpace(launchConfig.Model) != "" {
-		commandArgs = append(commandArgs, "--model", launchConfig.Model)
-	}
-	if strings.TrimSpace(launchConfig.Reasoning) != "" {
-		commandArgs = append(commandArgs, "--reasoning", launchConfig.Reasoning)
-	}
-	if playwrightRuntimeMode != "" {
-		commandArgs = append(commandArgs, "--playwright-runtime-mode", playwrightRuntimeMode)
-	}
-	commandArgs = append(
-		commandArgs,
-		"--headless-log-path", headlessLogPath,
-		"--worker-metadata-path", metadataPath,
-		"--suppress-autonomous-wake",
-	)
-
-	command := execCommand("python3", commandArgs...)
-	commandEnv, envErr := resolveRuntimeLaunchEnv(projectCWD, os.Environ())
-	if envErr != nil {
-		log.Printf("warning: failed to resolve runtime launch env for %s: %v", projectCWD, envErr)
-		commandEnv = os.Environ()
-	}
-	command.Env = commandEnv
-	launcherLogHandle, err := os.OpenFile(launcherLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed to open launcher diagnostic log: %v", err)
-	}
-	defer launcherLogHandle.Close()
-	command.Stdout = launcherLogHandle
-	command.Stderr = launcherLogHandle
-	if err := command.Start(); err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed to launch explicit netrunner: %v", err)
-	}
-
-	waitErrCh := make(chan error, 1)
-	go func() {
-		waitErrCh <- command.Wait()
-	}()
-
-	launcherPID := 0
-	if command.Process != nil {
-		launcherPID = command.Process.Pid
-	}
-
-	select {
-	case waitErr := <-waitErrCh:
-		if waitErr != nil {
-			return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf(
-				"explicit netrunner launcher exited before startup completed: %v\nlauncher log: %s\nheadless log: %s",
-				waitErr,
-				launcherLogPath,
-				headlessLogPath,
-			)
-		}
-	case <-time.After(explicitLauncherExitGracePeriod):
-	}
-
-	workerPID := launcherPID
-	if metadata, metadataErr := readExplicitLaunchWorkerMetadata(metadataPath); metadataErr == nil {
-		workerPID = metadata.WorkerPID
-		if strings.TrimSpace(metadata.HeadlessLogPath) != "" {
-			headlessLogPath = strings.TrimSpace(metadata.HeadlessLogPath)
-		}
-	}
-	if workerPID > 0 {
-		if err := recordWorkerProcessLaunch(authorizedProjectId, globalSessionID, workerPID, 0); err != nil {
-			return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed to persist worker process metadata: %v", err)
-		}
-	}
-
-	externalSessionID, err := waitForSessionExternalID(ctx, globalSessionID, launchConfig.Backend, 10*time.Second)
-	if err != nil {
-		return ExplicitNetrunnerLaunchMetadata{}, fmt.Errorf("failed while waiting for backend session metadata: %v", err)
-	}
-
-	log.Printf(
-		"launch_explicit_netrunner project_id=%d session_id=%d backend=%q model=%q reasoning=%q fixer_session_id=%q external_session_id=%q",
-		authorizedProjectId,
-		sessionID,
-		launchConfig.Backend,
-		launchConfig.Model,
-		launchConfig.Reasoning,
-		strings.TrimSpace(input.FixerSessionId),
-		externalSessionID,
-	)
-
-	legacyCodexSessionID := ""
-	if launchConfig.Backend == defaultCliBackend {
-		legacyCodexSessionID = externalSessionID
-	}
-
-	return ExplicitNetrunnerLaunchMetadata{
-		SessionId:          sessionID,
-		ProjectCwd:         projectCWD,
-		LauncherScript:     launcherScript,
-		Backend:            launchConfig.Backend,
-		Model:              launchConfig.Model,
-		Reasoning:          launchConfig.Reasoning,
-		ExternalSessionId:  externalSessionID,
-		CodexSessionId:     legacyCodexSessionID,
-		SpawnedBackground:  true,
-		DeclaredWriteScope: append([]string{}, sessionState.DeclaredWriteScope...),
-	}, nil
-}
-
-func normalizeExplicitPlaywrightRuntimeMode(raw string) (string, error) {
-	mode := strings.ToLower(strings.TrimSpace(raw))
-	switch mode {
-	case "", "default", "headless", "chrome", "headless-profile":
-		return mode, nil
-	default:
-		return "", fmt.Errorf(
-			"unsupported playwright_runtime_mode %q; supported values: default, headless, chrome, headless-profile",
-			raw,
-		)
-	}
 }
 
 func fetchSessionWaitSnapshot(sessionID int, projectID int) (string, string, []int, string, string, string, string, error) {
@@ -1316,12 +1033,6 @@ func waitForNetrunnerSessionResult(ctx context.Context, sessionID int, timeoutSe
 	}
 }
 
-func LaunchExplicitNetrunner(ctx context.Context, req *mcp.CallToolRequest, input LaunchExplicitNetrunnerInput) (*mcp.CallToolResult, LaunchExplicitNetrunnerOutput, error) {
-	return &mcp.CallToolResult{IsError: true}, LaunchExplicitNetrunnerOutput{}, fmt.Errorf(
-		"launch_explicit_netrunner is temporarily disabled; use launch_and_wait_netrunner for the one-task autonomous flow or run-manual-netrunner for separate-terminal work",
-	)
-}
-
 func WaitForNetrunnerSession(ctx context.Context, req *mcp.CallToolRequest, input WaitForNetrunnerSessionInput) (*mcp.CallToolResult, WaitForNetrunnerSessionOutput, error) {
 	if authorizedRole != "fixer" {
 		return &mcp.CallToolResult{IsError: true}, WaitForNetrunnerSessionOutput{}, fmt.Errorf("access denied: requires fixer role")
@@ -1344,34 +1055,4 @@ func WaitForNetrunnerSessions(ctx context.Context, req *mcp.CallToolRequest, inp
 	return &mcp.CallToolResult{IsError: true}, WaitForNetrunnerSessionsOutput{}, fmt.Errorf(
 		"wait_for_netrunner_sessions is temporarily disabled; parallel Netrunner orchestration is not available",
 	)
-}
-
-func LaunchAndWaitNetrunner(ctx context.Context, req *mcp.CallToolRequest, input LaunchAndWaitNetrunnerInput) (*mcp.CallToolResult, LaunchAndWaitNetrunnerOutput, error) {
-	if authorizedRole != "fixer" {
-		return &mcp.CallToolResult{IsError: true}, LaunchAndWaitNetrunnerOutput{}, fmt.Errorf("access denied: requires fixer role")
-	}
-
-	launch, err := launchExplicitNetrunnerWithMetadata(ctx, LaunchExplicitNetrunnerInput{
-		SessionId:                  input.SessionId,
-		FixerSessionId:             input.FixerSessionId,
-		SessionReuseOverrideReason: input.SessionReuseOverrideReason,
-		Backend:                    input.Backend,
-		Model:                      input.Model,
-		Reasoning:                  input.Reasoning,
-		PlaywrightRuntimeMode:      input.PlaywrightRuntimeMode,
-	})
-	if err != nil {
-		return &mcp.CallToolResult{IsError: true}, LaunchAndWaitNetrunnerOutput{}, err
-	}
-
-	waitResult, err := waitForNetrunnerSessionResult(ctx, input.SessionId, input.TimeoutSeconds, input.PollIntervalSeconds)
-	if err != nil {
-		return &mcp.CallToolResult{IsError: true}, LaunchAndWaitNetrunnerOutput{}, err
-	}
-
-	return nil, LaunchAndWaitNetrunnerOutput{
-		Status: "success",
-		Launch: launch,
-		Wait:   waitResult,
-	}, nil
 }

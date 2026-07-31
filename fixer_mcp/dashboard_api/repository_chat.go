@@ -54,6 +54,9 @@ func (r *Repository) loadChatBinding(ctx context.Context, projectID int, preferr
 	aliasNotes := r.loadFixerResumeAliasNotes(ctx, projectID)
 	activeFixerSessionID := r.loadActiveAutonomousFixerSessionID(ctx, projectID, project.CWD)
 	sessions, ambiguousCount := loadCodexChatSessions(project.CWD, activeFixerSessionID, aliasNotes)
+	if preferredRole == "fixer" {
+		sessions = append(sessions, loadNonCodexFixerChatSessions(userHomeDir(), project.CWD)...)
+	}
 
 	filtered := make([]FixerChatSessionSummary, 0, len(sessions))
 	for _, session := range sessions {
@@ -411,7 +414,7 @@ func containsChatSession(sessions []FixerChatSessionSummary, sessionID string) b
 
 func chatBindingResidualRisk(preferredRole string, ambiguousCount int) string {
 	parts := []string{
-		fmt.Sprintf("Fixer MCP resolves %s session links from the autonomous state, resume aliases, and local Codex rollout logs; full messages are read from local JSONL logs through node_bridge when available.", preferredRole),
+		fmt.Sprintf("Fixer MCP resolves %s session links from autonomous state, resume aliases, and local provider history stores; full messages are read from provider transcripts through node_bridge when available.", preferredRole),
 	}
 	if ambiguousCount > 0 {
 		parts = append(parts, fmt.Sprintf("%d local Codex session logs were hidden because they contained mixed role markers and could not be labeled truthfully.", ambiguousCount))

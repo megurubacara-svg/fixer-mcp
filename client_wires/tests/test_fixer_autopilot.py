@@ -72,6 +72,17 @@ def _seed_autopilot_db(db_path: Path, project_cwd: Path) -> None:
 
 
 class FixerAutopilotTests(unittest.TestCase):
+    def test_run_autopilot_refuses_retired_serial_dispatch(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "only through Fixer MCP waves"):
+            fixer_autopilot.run_autopilot(
+                Path("/tmp/project"),
+                max_parallel=1,
+                poll_interval_sec=1,
+                max_retry_delay_sec=1,
+                once=True,
+                dry_run=True,
+            )
+
     def test_load_dispatchable_sessions_only_returns_pending(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "fixer.db"

@@ -1,6 +1,7 @@
 {
   "backends": {
     "antigravity": {
+      "available": true,
       "default_model": "default",
       "default_reasoning": "default",
       "description": "Google Antigravity CLI launcher flow using agy, workspace .agents MCP config, and workspace skills.",
@@ -9,6 +10,7 @@
       "model_options": [
         "default",
         "Gemini 3.5 Flash",
+        "Gemini 3.6 Flash",
         "Gemini 3.1 Pro",
         "Claude Sonnet 4.6",
         "Claude Opus 4.6",
@@ -24,6 +26,7 @@
       "resume_supported": true
     },
     "claude": {
+      "available": true,
       "default_model": "sonnet",
       "default_reasoning": "medium",
       "description": "Claude Code launcher flow with layered MCP config materialization.",
@@ -32,14 +35,20 @@
       "model_options": [
         "sonnet",
         "opus",
+        "claude-opus-5",
         "haiku"
       ],
       "reasoning_options": [
-        "medium"
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
       ],
       "resume_supported": true
     },
     "codex": {
+      "available": true,
       "default_model": "gpt-5.6-luna",
       "default_reasoning": "xhigh",
       "description": "Explicit MCP flag injection for Codex-based launcher flows.",
@@ -60,11 +69,13 @@
         "low",
         "medium",
         "high",
-        "xhigh"
+        "xhigh",
+        "ultra"
       ],
       "resume_supported": true
     },
     "droid": {
+      "available": false,
       "default_model": "kimi-k2.6",
       "default_reasoning": "high",
       "description": "Layered MCP config materialization for Factory Droid launcher flows.",
@@ -84,6 +95,7 @@
       "resume_supported": true
     },
     "junie": {
+      "available": false,
       "default_model": "kimi-k2.6",
       "default_reasoning": "default",
       "description": "Junie CLI launcher flow with user-scope custom Kimi and GLM BYOK profiles.",
@@ -100,13 +112,15 @@
       "resume_supported": true
     },
     "kimi-code": {
+      "available": true,
       "default_model": "kimi-k2.7-code",
       "default_reasoning": "default",
       "description": "Kimi Code CLI (kimi-cli) launcher flow: managed Kimi K2.7 Code, headless --print mode, project .mcp.json discovery.",
       "fresh_launch_supported": true,
       "label": "Kimi Code CLI",
       "model_options": [
-        "kimi-k2.7-code"
+        "kimi-k2.7-code",
+        "kimi-k3"
       ],
       "reasoning_options": [
         "default",
@@ -114,6 +128,22 @@
         "medium",
         "high",
         "xhigh"
+      ],
+      "resume_supported": true
+    },
+    "kimi-code-native": {
+      "available": true,
+      "default_model": "kimi-for-coding",
+      "default_reasoning": "default",
+      "description": "Prototype launcher flow for Moonshot's native Kimi Code binary (~/.kimi-code/bin/kimi, distinct from the uv-tool kimi-cli package that the existing 'kimi-code' backend drives). Not wired into SUPPORTED_BACKENDS; unreachable from the picker until explicitly activated.",
+      "fresh_launch_supported": true,
+      "label": "Kimi Code (native, prototype)",
+      "model_options": [
+        "kimi-for-coding",
+        "kimi-k3"
+      ],
+      "reasoning_options": [
+        "default"
       ],
       "resume_supported": true
     }

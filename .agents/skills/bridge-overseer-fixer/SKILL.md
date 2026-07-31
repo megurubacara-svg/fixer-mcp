@@ -16,7 +16,7 @@ Use this skill only as a project-bound Fixer invoked by the global Overseer.
 5. If the Overseer request is unclear or blocked, answer with `append_overseer_fixer_message` using `sender_role='fixer'`.
 6. Keep `set_overseer_fixer_run_state` current while work is active and when it completes or blocks.
 7. Route clear work through canonical Fixer flows:
-   - `$run-one-netrunner-task` for one bounded implementation task
+   - `$run-netrunner-wave` for every bounded implementation task, including a one-worker wave
    - `$review-netrunner-session` for completed-session review
    - `$run-manual-netrunner` only when Overseer explicitly requests the separate-terminal path
 8. Send the compact result through `append_overseer_fixer_message`.

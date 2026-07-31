@@ -14,6 +14,11 @@ KIMI_CODE_PUBLIC_MODEL = "kimi-k2.7-code"
 # Internal model id understood by kimi-cli (-m). The managed "K2.7 Code" model.
 KIMI_CODE_INTERNAL_MODEL = "kimi-code/kimi-for-coding"
 
+# Public alias for the managed "K3" model.
+KIMI_CODE_K3_MODEL = "kimi-k3"
+# Internal model id understood by kimi-cli (-m) for K3.
+KIMI_CODE_K3_INTERNAL_MODEL = "kimi-code/k3"
+
 # Scoped runtime MCP config path, relative to the project cwd.  Using a scoped
 # file avoids clobbering the operator's interactive .mcp.json in the project
 # root and lets us pass the config explicitly via --mcp-config-file.
@@ -27,10 +32,15 @@ _KIMI_MODEL_ALIASES = {
     "kimi-code": KIMI_CODE_PUBLIC_MODEL,
     "kimi-for-coding": KIMI_CODE_PUBLIC_MODEL,
     "kimi-code/kimi-for-coding": KIMI_CODE_PUBLIC_MODEL,
+    "kimi-k3": KIMI_CODE_K3_MODEL,
+    "kimi k3": KIMI_CODE_K3_MODEL,
+    "k3": KIMI_CODE_K3_MODEL,
+    "kimi-code/k3": KIMI_CODE_K3_MODEL,
 }
 
 _KIMI_INTERNAL_MODEL_IDS = {
     KIMI_CODE_PUBLIC_MODEL: KIMI_CODE_INTERNAL_MODEL,
+    KIMI_CODE_K3_MODEL: KIMI_CODE_K3_INTERNAL_MODEL,
 }
 
 
@@ -172,9 +182,16 @@ class KimiCodeBackendAdapter(BackendAdapter):
         return [self._mcp_config_flag, str(_KIMI_RUNTIME_MCP_CONFIG)]
 
     def build_prompt_args(self, prompt: str) -> list[str]:
-        # Kimi shell mode cannot auto-submit an initial prompt; the launcher
-        # surfaces the bootstrap prompt to the operator instead.  The headless
-        # path builds its own `-p` flag directly in build_headless_command.
+        # `-p`/`--prompt` is a one-shot flag on kimi-cli: passing it makes the
+        # CLI run that single turn and exit, it does NOT stay in the
+        # interactive TUI afterward (confirmed the hard way — a prior fix
+        # here wrongly assumed `-p` auto-submits into an ongoing interactive
+        # session and broke real interactive kimi-code launches). Kimi shell
+        # mode has no way to auto-submit an initial prompt into a session
+        # that stays open, so the launcher surfaces the bootstrap prompt to
+        # the operator instead. The headless path builds its own `-p` flag
+        # directly in build_headless_command, where one-shot-and-exit is the
+        # correct/intended behavior.
         return []
 
     def build_resume_command(self, option_args: Sequence[str], external_session_id: str) -> list[str]:

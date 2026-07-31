@@ -1,0 +1,7 @@
+### Public response returned after a client registration or login.
+class: ClientAuthResponse
+fields:
+  clientId: UuidValue
+  email: String
+  displayName: String
+  sessionToken: String

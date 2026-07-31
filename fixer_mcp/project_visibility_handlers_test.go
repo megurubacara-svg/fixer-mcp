@@ -692,6 +692,176 @@ func TestAutonomousRunStatus_SetAndGet(t *testing.T) {
 	}
 }
 
+func TestSetAutonomousRunStatus_OptionalSessionIDRegression(t *testing.T) {
+	originalDB := db
+	originalRole := authorizedRole
+	originalProjectID := authorizedProjectId
+	defer func() {
+		db = originalDB
+		authorizedRole = originalRole
+		authorizedProjectId = originalProjectID
+	}()
+
+	testDB := setupGetProjectsTestDB(t)
+	defer func() {
+		_ = testDB.Close()
+	}()
+
+	// Enable foreign key constraints on test DB to verify no FK constraint failures occur on session_id NULL.
+	if _, err := testDB.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		t.Fatalf("failed to enable foreign_keys: %v", err)
+	}
+
+	db = testDB
+	authorizedRole = "fixer"
+	authorizedProjectId = 1
+
+	// 1. Omitted SessionId on first insert
+	callRes, setOut, err := SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		State:   "running",
+		Summary: "Initial run without session",
+	})
+	if err != nil {
+		t.Fatalf("set_autonomous_run_status with omitted session_id failed: %v", err)
+	}
+	if callRes != nil {
+		t.Fatalf("expected nil call result, got: %+v", callRes)
+	}
+	if setOut.Record.SessionId != 0 {
+		t.Fatalf("expected record.SessionId == 0 for omitted field, got %d", setOut.Record.SessionId)
+	}
+	jsonBytes, err := json.Marshal(setOut.Record)
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	if strings.Contains(string(jsonBytes), `"session_id"`) {
+		t.Fatalf("expected session_id to be absent in JSON output, got %s", string(jsonBytes))
+	}
+
+	// Verify DB column is SQL NULL
+	var isNull bool
+	err = db.QueryRow("SELECT session_id IS NULL FROM autonomous_run_status WHERE project_id = 1").Scan(&isNull)
+	if err != nil {
+		t.Fatalf("query DB session_id IS NULL: %v", err)
+	}
+	if !isNull {
+		t.Fatal("expected session_id in DB to be SQL NULL, but was not NULL")
+	}
+
+	// GetAutonomousRunStatus round-trip
+	getRes, getOut, err := GetAutonomousRunStatus(context.Background(), nil, GetAutonomousRunStatusInput{})
+	if err != nil {
+		t.Fatalf("get_autonomous_run_status failed: %v", err)
+	}
+	if getRes != nil {
+		t.Fatalf("expected nil get call result, got: %+v", getRes)
+	}
+	if !getOut.HasStatus {
+		t.Fatal("expected HasStatus == true")
+	}
+	if getOut.Status.SessionId != 0 {
+		t.Fatalf("expected getOut.Status.SessionId == 0, got %d", getOut.Status.SessionId)
+	}
+	getJsonBytes, err := json.Marshal(getOut.Status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	if strings.Contains(string(getJsonBytes), `"session_id"`) {
+		t.Fatalf("expected session_id to be absent in GetAutonomousRunStatus JSON output, got %s", string(getJsonBytes))
+	}
+
+	// 2. Explicit SessionId = 0 on update
+	_, setOutZero, err := SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		SessionId: 0,
+		State:     "running",
+		Summary:   "Update with explicit zero session",
+	})
+	if err != nil {
+		t.Fatalf("set_autonomous_run_status with explicit zero session failed: %v", err)
+	}
+	if setOutZero.Record.SessionId != 0 {
+		t.Fatalf("expected record.SessionId == 0 for explicit 0, got %d", setOutZero.Record.SessionId)
+	}
+	err = db.QueryRow("SELECT session_id IS NULL FROM autonomous_run_status WHERE project_id = 1").Scan(&isNull)
+	if err != nil || !isNull {
+		t.Fatalf("expected DB session_id to remain SQL NULL for explicit 0, err=%v, isNull=%v", err, isNull)
+	}
+
+	// 3. Valid SessionId = 1 on update
+	_, setOutValid, err := SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		SessionId: 1,
+		State:     "running",
+		Summary:   "Update with valid session 1",
+	})
+	if err != nil {
+		t.Fatalf("set_autonomous_run_status with valid session 1 failed: %v", err)
+	}
+	if setOutValid.Record.SessionId != 1 {
+		t.Fatalf("expected record.SessionId == 1, got %d", setOutValid.Record.SessionId)
+	}
+	var storedSessionID int
+	err = db.QueryRow("SELECT session_id FROM autonomous_run_status WHERE project_id = 1").Scan(&storedSessionID)
+	if err != nil || storedSessionID != 1 {
+		t.Fatalf("expected stored session_id == 1, err=%v, stored=%d", err, storedSessionID)
+	}
+
+	// 4. Reset back to omitted session (0)
+	_, setOutReset, err := SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		SessionId: 0,
+		State:     "completed",
+		Summary:   "Run completed, session cleared",
+	})
+	if err != nil {
+		t.Fatalf("set_autonomous_run_status reset to 0 failed: %v", err)
+	}
+	if setOutReset.Record.SessionId != 0 {
+		t.Fatalf("expected record.SessionId == 0 after reset, got %d", setOutReset.Record.SessionId)
+	}
+	err = db.QueryRow("SELECT session_id IS NULL FROM autonomous_run_status WHERE project_id = 1").Scan(&isNull)
+	if err != nil || !isNull {
+		t.Fatalf("expected DB session_id to be reset to SQL NULL, err=%v, isNull=%v", err, isNull)
+	}
+
+	// 5. Invalid/nonexistent positive SessionId
+	_, _, err = SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		SessionId: 9999,
+		State:     "running",
+		Summary:   "Should fail",
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent session_id 9999")
+	}
+
+	// Cross-project SessionId (session 2 belongs to project 2)
+	_, _, err = SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		SessionId: 2,
+		State:     "running",
+		Summary:   "Should fail due to cross project",
+	})
+	if err == nil {
+		t.Fatal("expected error for cross-project session_id 2")
+	}
+
+	// 6. ResumeOrchestration without artificial session
+	_, resumeOut, err := SetAutonomousRunStatus(context.Background(), nil, SetAutonomousRunStatusInput{
+		State:               "running",
+		Summary:             "Resuming orchestration without session",
+		ResumeOrchestration: true,
+	})
+	if err != nil {
+		t.Fatalf("ResumeOrchestration failed: %v", err)
+	}
+	if resumeOut.Record.OrchestrationFrozen {
+		t.Fatal("expected OrchestrationFrozen == false after ResumeOrchestration")
+	}
+	if !resumeOut.Record.NotificationsEnabledForActiveRun {
+		t.Fatal("expected NotificationsEnabledForActiveRun == true after ResumeOrchestration")
+	}
+	if resumeOut.Record.SessionId != 0 {
+		t.Fatalf("expected SessionId == 0 after ResumeOrchestration without session, got %d", resumeOut.Record.SessionId)
+	}
+}
+
 func TestSendOperatorTelegramNotification_NetrunnerSuccess(t *testing.T) {
 	originalDB := db
 	originalRole := authorizedRole

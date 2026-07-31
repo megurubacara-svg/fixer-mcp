@@ -1,0 +1,20 @@
+### A client order submitted to the autonomous delivery pipeline.
+class: Order
+table: order
+fields:
+  clientId: UuidValue
+  projectDescription: String
+  budgetCents: int
+  status: String
+  assignedProjectId: int?
+  createdAt: DateTime
+  updatedAt: DateTime
+
+  # Legacy client-cockpit fields retained while the new order flow rolls out.
+  title: String
+  description: String
+indexes:
+  order_client_updated_idx:
+    fields: clientId, updatedAt
+  order_status_updated_idx:
+    fields: status, updatedAt

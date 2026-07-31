@@ -77,6 +77,8 @@ type ProjectCard struct {
 	Project              ProjectBinding    `json:"project"`
 	Counts               StatusCounts      `json:"counts"`
 	LatestActivityLabel  string            `json:"latest_activity_label"`
+	LastActivityAt       string            `json:"last_activity_at,omitempty"`
+	ActiveWaveCount      int               `json:"active_wave_count"`
 	LatestSessionID      int               `json:"latest_session_id,omitempty"`
 	LatestLocalSessionID int               `json:"latest_local_session_id,omitempty"`
 	Autonomous           *AutonomousStatus `json:"autonomous,omitempty"`
@@ -109,18 +111,21 @@ type DocsSummary struct {
 
 type OverviewMetrics struct {
 	Counts               StatusCounts       `json:"counts"`
+	ActiveWaveCount      int                `json:"active_wave_count"`
+	TotalWaveCount       int                `json:"total_wave_count"`
 	AttachedDocCount     int                `json:"attached_doc_count"`
 	PendingProposalCount int                `json:"pending_proposal_count"`
 	WorkerState          WorkerStateSummary `json:"worker_state"`
 }
 
 type ProjectSnapshotResponse struct {
-	Project    ProjectHeader      `json:"project"`
-	Metrics    OverviewMetrics    `json:"metrics"`
-	Autonomous *AutonomousStatus  `json:"autonomous,omitempty"`
-	Docs       DocsSummary        `json:"docs"`
-	Netrunners []NetrunnerSummary `json:"netrunners"`
-	FixerChat  FixerChatBinding   `json:"fixer_chat"`
+	Project    ProjectHeader        `json:"project"`
+	Metrics    OverviewMetrics      `json:"metrics"`
+	Autonomous *AutonomousStatus    `json:"autonomous,omitempty"`
+	Docs       DocsSummary          `json:"docs"`
+	Waves      []NetrunnerWaveGroup `json:"waves"`
+	Netrunners []NetrunnerSummary   `json:"netrunners"`
+	FixerChat  FixerChatBinding     `json:"fixer_chat"`
 }
 
 type DocSummary struct {
@@ -181,10 +186,185 @@ type NetrunnerSummary struct {
 	LocalRepairSourceID   int                `json:"local_repair_source_id,omitempty"`
 }
 
-type ProjectNetrunnersResponse struct {
-	Project  ProjectHeader      `json:"project"`
-	Statuses []string           `json:"statuses,omitempty"`
+type ProjectNetrunnersResponse = ProjectNetrunnerGroupsResponse
+
+type ArchitectOrdersResponse struct {
+	Projects []ProjectBinding   `json:"projects"`
 	Sessions []NetrunnerSummary `json:"sessions"`
+}
+
+type WaveReviewSummary struct {
+	WaveID                int          `json:"wave_id"`
+	SessionID             int          `json:"session_id"`
+	LocalSessionID        int          `json:"local_session_id"`
+	Status                string       `json:"status"`
+	TaskPreview           string       `json:"task_preview"`
+	ReportRaw             string       `json:"report_raw"`
+	StructuredFinalReport *FinalReport `json:"structured_final_report,omitempty"`
+}
+
+type ProjectWaveReviewsResponse struct {
+	Project ProjectHeader       `json:"project"`
+	Reviews []WaveReviewSummary `json:"reviews"`
+}
+
+type MissionControlFreshness struct {
+	State             string `json:"state"`
+	Stale             bool   `json:"stale"`
+	SourceUpdatedAt   string `json:"source_updated_at,omitempty"`
+	AgeSeconds        int64  `json:"age_seconds"`
+	StaleAfterSeconds int64  `json:"stale_after_seconds"`
+	Reason            string `json:"reason,omitempty"`
+}
+
+type MissionControlWorkerCounts struct {
+	Total        int `json:"total"`
+	Active       int `json:"active"`
+	Terminal     int `json:"terminal"`
+	ReviewReady  int `json:"review_ready"`
+	Completed    int `json:"completed"`
+	Failed       int `json:"failed"`
+	Stopped      int `json:"stopped"`
+	StaleEpoch   int `json:"stale_epoch"`
+	Blocked      int `json:"blocked"`
+	RetryPending int `json:"retry_pending"`
+}
+
+type MissionControlLinkedSessionState struct {
+	SessionID      int    `json:"session_id,omitempty"`
+	LocalSessionID int    `json:"local_session_id,omitempty"`
+	State          string `json:"state"`
+}
+
+type MissionControlRepairState struct {
+	State          string `json:"state"`
+	WorkerID       int    `json:"worker_id,omitempty"`
+	SessionID      int    `json:"session_id,omitempty"`
+	LocalSessionID int    `json:"local_session_id,omitempty"`
+	AttemptCount   int    `json:"attempt_count"`
+}
+
+type MissionControlWaveWorker struct {
+	WorkerID       int    `json:"worker_id"`
+	SessionID      int    `json:"session_id,omitempty"`
+	LocalSessionID int    `json:"local_session_id,omitempty"`
+	Status         string `json:"status"`
+	SessionStatus  string `json:"session_status,omitempty"`
+	Backend        string `json:"backend,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Reasoning      string `json:"reasoning,omitempty"`
+	Outcome        string `json:"outcome,omitempty"`
+	FailureReason  string `json:"failure_reason,omitempty"`
+	RetryPending   bool   `json:"retry_pending"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+}
+
+type MissionControlActionCapability struct {
+	Enabled        bool   `json:"enabled"`
+	DisabledReason string `json:"disabled_reason,omitempty"`
+}
+
+type MissionControlWaveActionCapabilities struct {
+	Launch                 MissionControlActionCapability `json:"launch"`
+	Wait                   MissionControlActionCapability `json:"wait"`
+	AuthorizeRepair        MissionControlActionCapability `json:"authorize_repair"`
+	Pause                  MissionControlActionCapability `json:"pause"`
+	Resume                 MissionControlActionCapability `json:"resume"`
+	TransitionToAcceptance MissionControlActionCapability `json:"transition_to_acceptance"`
+	Complete               MissionControlActionCapability `json:"complete"`
+	Cleanup                MissionControlActionCapability `json:"cleanup"`
+}
+
+type MissionControlPlannedWaveTask struct {
+	TaskID                int      `json:"task_id"`
+	Key                   string   `json:"key"`
+	Position              int      `json:"position"`
+	TaskDescription       string   `json:"task_description"`
+	DeclaredWriteScope    []string `json:"declared_write_scope"`
+	DependsOn             []string `json:"depends_on"`
+	Backend               string   `json:"backend,omitempty"`
+	Model                 string   `json:"model,omitempty"`
+	Reasoning             string   `json:"reasoning,omitempty"`
+	MCPServers            []string `json:"mcp_servers"`
+	MaterializedSessionID int      `json:"materialized_session_id,omitempty"`
+	LocalSessionID        int      `json:"local_session_id,omitempty"`
+}
+
+type MissionControlPlannedWaveCounts struct {
+	Total        int `json:"total"`
+	Planned      int `json:"planned"`
+	Materialized int `json:"materialized"`
+}
+
+type MissionControlPlannedWaveActionCapabilities struct {
+	Initialize MissionControlActionCapability `json:"initialize"`
+	Launch     MissionControlActionCapability `json:"launch"`
+}
+
+type MissionControlPlannedWave struct {
+	PlanID             int                                         `json:"plan_id"`
+	Title              string                                      `json:"title"`
+	Status             string                                      `json:"status"`
+	OperatorState      string                                      `json:"operator_state"`
+	Label              string                                      `json:"label"`
+	NextAction         string                                      `json:"next_action"`
+	Reason             string                                      `json:"reason,omitempty"`
+	BaseRef            string                                      `json:"base_ref,omitempty"`
+	WorktreeRoot       string                                      `json:"worktree_root,omitempty"`
+	InitializedWaveID  int                                         `json:"initialized_wave_id,omitempty"`
+	FailureReason      string                                      `json:"failure_reason,omitempty"`
+	CreatedAt          string                                      `json:"created_at,omitempty"`
+	UpdatedAt          string                                      `json:"updated_at,omitempty"`
+	InitializedAt      string                                      `json:"initialized_at,omitempty"`
+	Backend            string                                      `json:"backend,omitempty"`
+	Model              string                                      `json:"model,omitempty"`
+	Reasoning          string                                      `json:"reasoning,omitempty"`
+	MCPServers         []string                                    `json:"mcp_servers"`
+	ValidationErrors   []string                                    `json:"validation_errors"`
+	TaskCounts         MissionControlPlannedWaveCounts             `json:"task_counts"`
+	Tasks              []MissionControlPlannedWaveTask             `json:"tasks"`
+	ActionCapabilities MissionControlPlannedWaveActionCapabilities `json:"action_capabilities"`
+}
+
+type InitializeMissionControlPlannedWaveResponse struct {
+	Status      string                    `json:"status"`
+	ProjectID   int                       `json:"project_id"`
+	PlanID      int                       `json:"plan_id"`
+	WaveID      int                       `json:"wave_id"`
+	PlannedWave MissionControlPlannedWave `json:"planned_wave"`
+	Wave        MissionControlWave        `json:"wave"`
+}
+
+type MissionControlWave struct {
+	WaveID             int                                  `json:"wave_id"`
+	Phase              string                               `json:"phase"`
+	LegacyStatus       string                               `json:"legacy_status"`
+	OperatorState      string                               `json:"operator_state"`
+	Label              string                               `json:"label"`
+	NextAction         string                               `json:"next_action"`
+	GateState          string                               `json:"gate_state"`
+	ControlState       string                               `json:"control_state"`
+	ControlReason      string                               `json:"control_reason,omitempty"`
+	FailurePolicyState string                               `json:"failure_policy_state"`
+	FailureReason      string                               `json:"failure_reason,omitempty"`
+	CreatedAt          string                               `json:"created_at,omitempty"`
+	UpdatedAt          string                               `json:"updated_at,omitempty"`
+	LaunchedAt         string                               `json:"launched_at,omitempty"`
+	CompletedAt        string                               `json:"completed_at,omitempty"`
+	WorkerCounts       MissionControlWorkerCounts           `json:"worker_counts"`
+	Review             MissionControlLinkedSessionState     `json:"review"`
+	Acceptance         MissionControlLinkedSessionState     `json:"acceptance"`
+	Repair             MissionControlRepairState            `json:"repair"`
+	Workers            []MissionControlWaveWorker           `json:"workers"`
+	ActionCapabilities MissionControlWaveActionCapabilities `json:"action_capabilities"`
+}
+
+type ProjectMissionControlWavesResponse struct {
+	ProjectID    int                         `json:"project_id"`
+	GeneratedAt  string                      `json:"generated_at"`
+	Freshness    MissionControlFreshness     `json:"freshness"`
+	PlannedWaves []MissionControlPlannedWave `json:"planned_waves"`
+	Waves        []MissionControlWave        `json:"waves"`
 }
 
 type FinalReport struct {
@@ -194,6 +374,40 @@ type FinalReport struct {
 	Blockers      []string            `json:"blockers"`
 	ResidualRisks []string            `json:"residual_risks,omitempty"`
 	CleanupClaims map[string][]string `json:"cleanup_claims,omitempty"`
+}
+
+type PreviewDescriptor struct {
+	URL       string `json:"url,omitempty"`
+	Provider  string `json:"provider"`
+	Status    string `json:"status"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+type SandboxDescriptor struct {
+	PreviewToken     string            `json:"-"`
+	ID               int               `json:"id,omitempty"`
+	Status           string            `json:"status"`
+	SourceProjectCWD string            `json:"source_project_cwd,omitempty"`
+	WorktreePath     string            `json:"worktree_path"`
+	BranchName       string            `json:"branch_name,omitempty"`
+	BaseRevision     string            `json:"base_revision,omitempty"`
+	WorktreeExists   bool              `json:"worktree_exists"`
+	BranchExists     bool              `json:"branch_exists"`
+	Preview          PreviewDescriptor `json:"preview"`
+}
+
+// SandboxActionResponse is returned by the explicit order sandbox endpoints.
+// The same shape is used for creation, inspection, and teardown so clients can
+// refresh their local state without special-casing each operation.
+type SandboxActionResponse struct {
+	Status  string            `json:"status"`
+	OrderID int               `json:"order_id"`
+	Sandbox SandboxDescriptor `json:"sandbox"`
+	Message string            `json:"message,omitempty"`
+}
+
+type TeardownSandboxInput struct {
+	Force bool `json:"force,omitempty"`
 }
 
 type DocProposalSummary struct {
@@ -267,6 +481,20 @@ type SessionActionResponse struct {
 	Status  string                  `json:"status"`
 	Message string                  `json:"message,omitempty"`
 	Session NetrunnerDetailResponse `json:"session"`
+}
+
+type FixerChatLaunchInput struct {
+	Backend   string `json:"backend"`
+	Model     string `json:"model"`
+	Reasoning string `json:"reasoning"`
+	CWD       string `json:"cwd"`
+}
+
+type FixerChatLaunchResponse struct {
+	Status    string `json:"status"`
+	ProjectID int    `json:"project_id"`
+	Backend   string `json:"backend"`
+	ProcessID int    `json:"process_id,omitempty"`
 }
 
 type FixerChatSessionSummary struct {

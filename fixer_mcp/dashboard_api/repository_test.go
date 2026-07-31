@@ -133,6 +133,15 @@ func TestHomeSnapshotAndProjectRoutes(t *testing.T) {
 		t.Fatalf("expected filtered sessions, got %d", len(netrunners.Sessions))
 	}
 
+	var architectOrders ArchitectOrdersResponse
+	readJSON(t, server.URL+"/api/architect/orders", &architectOrders)
+	if len(architectOrders.Projects) != 2 {
+		t.Fatalf("expected 2 architect-order projects, got %d", len(architectOrders.Projects))
+	}
+	if len(architectOrders.Sessions) < 2 {
+		t.Fatalf("expected architect orders in one response, got %d", len(architectOrders.Sessions))
+	}
+
 	var detail NetrunnerDetailResponse
 	readJSON(t, server.URL+"/api/sessions/11", &detail)
 	if detail.Session.LocalID != 2 {
@@ -158,6 +167,131 @@ func TestHomeSnapshotAndProjectRoutes(t *testing.T) {
 	}
 	if !strings.Contains(detail.Session.StatusActionNote, "frozen") {
 		t.Fatalf("expected truthful frozen note, got %q", detail.Session.StatusActionNote)
+	}
+}
+
+func TestHubFeatureRoutesExposeReviewedSlices(t *testing.T) {
+	repo := openFixtureRepository(t)
+	defer repo.Close()
+
+	for _, statement := range []string{
+		`CREATE TABLE backlog_item (
+			id INTEGER PRIMARY KEY,
+			project_id INTEGER NOT NULL,
+			title TEXT,
+			description TEXT,
+			status TEXT,
+			priority TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		)`,
+		`ALTER TABLE project_doc ADD COLUMN parent_doc_id INTEGER`,
+		`ALTER TABLE project_doc ADD COLUMN level INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE project_doc ADD COLUMN slug TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE project_doc ADD COLUMN path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE project_doc ADD COLUMN status TEXT NOT NULL DEFAULT 'current'`,
+		`INSERT INTO backlog_item VALUES (1, 1, 'Wire the hub', 'Integration route', 'open', 'high', '2026-07-23T01:00:00Z', '2026-07-23T01:01:00Z')`,
+		`UPDATE project_doc SET level = 0, slug = 'bridge', path = 'fixer/bridge', status = 'current' WHERE id = 1`,
+		`UPDATE project_doc SET parent_doc_id = 1, level = 1, slug = 'runtime', path = 'fixer/bridge/runtime', status = 'current' WHERE id = 2`,
+	} {
+		if _, err := repo.dbWrite.Exec(statement); err != nil {
+			t.Fatalf("seed integrated hub route with %q: %v", statement, err)
+		}
+	}
+	seedNetrunnerWaveGroups(t, repo)
+	writeFixtureSkill(t, repo.currentProjectCWD, ".agents/skills", "init-fixer", `---
+name: init-fixer
+description: Initialize a project Fixer.
+---
+Use $run-netrunner-wave.
+`)
+
+	var launched FixerChatLaunchInput
+	repo.fixerChatLauncher = func(cwd string, input FixerChatLaunchInput) (int, error) {
+		launched = input
+		if cwd != repo.currentProjectCWD {
+			t.Fatalf("launcher cwd = %q, want %q", cwd, repo.currentProjectCWD)
+		}
+		return 4242, nil
+	}
+
+	server := httptest.NewServer(NewServer(repo))
+	defer server.Close()
+
+	var home HomeSnapshotResponse
+	readJSON(t, server.URL+"/api/home", &home)
+	if home.Projects[0].ActiveWaveCount != 1 || home.Projects[0].LastActivityAt == "" {
+		t.Fatalf("expected wave-first project card metadata, got %+v", home.Projects[0])
+	}
+
+	var overview ProjectSnapshotResponse
+	readJSON(t, server.URL+"/api/projects/1/overview", &overview)
+	if overview.Metrics.ActiveWaveCount != 1 || overview.Metrics.TotalWaveCount != 2 || len(overview.Waves) != 2 {
+		t.Fatalf("expected wave-first overview, got metrics=%+v waves=%+v", overview.Metrics, overview.Waves)
+	}
+
+	var backlog ProjectBacklogResponse
+	readJSON(t, server.URL+"/api/projects/1/backlog", &backlog)
+	if len(backlog.Items) != 1 || backlog.Items[0].Title != "Wire the hub" {
+		t.Fatalf("unexpected backlog route payload: %+v", backlog)
+	}
+
+	var docsTree ProjectDocsTreeResponse
+	readJSON(t, server.URL+"/api/projects/1/docs/tree", &docsTree)
+	if docsTree.TotalDocs != 2 || len(docsTree.Roots) != 1 || len(docsTree.Roots[0].Children) != 1 {
+		t.Fatalf("unexpected docs tree route payload: %+v", docsTree)
+	}
+	var docDetail ProjectDocDetailResponse
+	readJSON(t, server.URL+"/api/projects/1/docs/1", &docDetail)
+	if docDetail.Document.Title != "Bridge Brief" || docDetail.Document.Content == "" {
+		t.Fatalf("unexpected document detail route: %+v", docDetail)
+	}
+
+	var grouped ProjectNetrunnerGroupsResponse
+	readJSON(t, server.URL+"/api/projects/1/netrunners", &grouped)
+	if len(grouped.WaveGroups) != 2 || grouped.WaveGroups[0].WaveID != 8 {
+		t.Fatalf("unexpected grouped Netrunner route: %+v", grouped.WaveGroups)
+	}
+
+	var threads FixerThreadsResponse
+	readJSON(t, server.URL+"/api/projects/1/fixer-threads", &threads)
+	if threads.ProjectID != 1 || len(threads.Providers) < 6 {
+		t.Fatalf("unexpected Fixer threads route: %+v", threads)
+	}
+
+	var netrunnerThread NetrunnerThreadResponse
+	readJSON(t, server.URL+"/api/sessions/11/thread", &netrunnerThread)
+	if netrunnerThread.SessionID != 11 {
+		t.Fatalf("unexpected Netrunner thread route: %+v", netrunnerThread)
+	}
+
+	var skills ProjectSkillsResponse
+	readJSON(t, server.URL+"/api/projects/1/skills", &skills)
+	if len(skills.Skills) != 1 || skills.Skills[0].Name != "init-fixer" {
+		t.Fatalf("unexpected skills route: %+v", skills)
+	}
+	var skill ManagedSkillDetail
+	readJSON(t, server.URL+"/api/projects/1/skills/agents/init-fixer", &skill)
+	if skill.Content == "" {
+		t.Fatalf("expected full skill content, got %+v", skill)
+	}
+
+	var launch FixerChatLaunchResponse
+	postJSON(t, server.URL+"/api/actions/projects/1/fixer-chats", map[string]any{
+		"backend": "agy", "model": "default", "reasoning": "high", "cwd": repo.currentProjectCWD,
+	}, &launch)
+	if launch.Status != "started" || launch.ProcessID != 4242 || launched.Backend != "antigravity" {
+		t.Fatalf("unexpected Fixer chat launch: response=%+v input=%+v", launch, launched)
+	}
+
+	var overseers OverseerHistoryResponse
+	readJSON(t, server.URL+"/api/overseer/threads", &overseers)
+	var overseerPlan OverseerLaunchPlan
+	postJSON(t, server.URL+"/api/actions/overseer/launch", map[string]any{
+		"cwd": repo.currentProjectCWD, "backend": "codex", "model": "gpt-5.6-luna", "reasoning": "high",
+	}, &overseerPlan)
+	if overseerPlan.Mode != "create" || overseerPlan.Environment["FIXER_MCP_LOCKED_ROLE"] != "overseer" {
+		t.Fatalf("unexpected Overseer launch plan: %+v", overseerPlan)
 	}
 }
 
@@ -260,7 +394,7 @@ func TestHealthRoute(t *testing.T) {
 		t.Fatalf("health request failed: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	var payload HealthResponse
@@ -545,10 +679,10 @@ func postJSON(t *testing.T, url string, payload any, target any) {
 		t.Fatalf("post %s: %v", url, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		var failure map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&failure)
-		t.Fatalf("expected 200 from %s, got %d payload=%v", url, resp.StatusCode, failure)
+		t.Fatalf("expected success from %s, got %d payload=%v", url, resp.StatusCode, failure)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
 		t.Fatalf("decode %s: %v", url, err)

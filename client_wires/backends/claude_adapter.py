@@ -73,7 +73,14 @@ class ClaudeCodeBackendAdapter(BackendAdapter):
         available: Mapping[str, Mapping[str, object]],
         prompt: str,
     ) -> list[str]:
-        command = [self.command, "--model", self.normalize_model(model), "--dangerously-skip-permissions"]
+        command = [
+            self.command,
+            "--model",
+            self.normalize_model(model),
+            "--effort",
+            self.normalize_reasoning(reasoning),
+            "--dangerously-skip-permissions",
+        ]
         if prompt.strip():
             command.append(prompt)
         return command

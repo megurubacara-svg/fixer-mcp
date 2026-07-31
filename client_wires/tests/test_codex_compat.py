@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from client_wires.codex_compat import config, llm, playwright_chrome_cdp, runtime, sessions, ui
+from client_wires.backends.catalog import load_backend_entry
+from client_wires.backends.manifest import load_manifest
 
 
 class CodexCompatImportSurfaceTests(unittest.TestCase):
@@ -38,6 +40,32 @@ class CodexCompatImportSurfaceTests(unittest.TestCase):
         self.assertEqual(
             [key for _label, key, _description in llm.MODEL_REASONING_OPTIONS["gpt-5.6-luna"]],
             ["low", "medium", "high", "xhigh"],
+        )
+
+    def test_codex_sol_ultra_reasoning_is_preserved_in_launch_args(self) -> None:
+        catalog = load_backend_entry("codex")
+        manifest = load_manifest(
+            Path(__file__).resolve().parents[1] / "backends" / "manifest" / "codex.manifest.json"
+        )
+        selection = llm.LLMSelection(
+            display_model="GPT-5.6 Sol",
+            detail="",
+            provider_slug="",
+            model="gpt-5.6-sol",
+            reasoning_effort="ultra",
+            requires_provider_override=False,
+        )
+
+        self.assertIn("ultra", catalog["reasoning_options"])
+        self.assertIn("ultra", manifest.reasoning.options)
+        self.assertEqual(
+            [key for _label, key, _description in llm.MODEL_REASONING_OPTIONS["gpt-5.6-sol"]],
+            ["low", "medium", "high", "xhigh", "ultra"],
+        )
+        self.assertEqual(llm.reasoning_label("gpt-5.6-sol", "ultra"), "Ultra")
+        self.assertIn(
+            'model_reasoning_effort="ultra"',
+            llm.CODEX_CLI_ADAPTER.build_llm_args(selection),
         )
 
     def test_project_mcp_discovery_reads_local_configs(self) -> None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import copy
+import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -12,6 +14,10 @@ _FIXER_GATE_TOOLS_TOML = (
     '["launch_netrunner_wave","wait_for_netrunner_wave"]'
 )
 _FIXER_GATE_PROFILE = "netrunner_gate"
+_DEEPSEEK_MODEL_CATALOG = "__FIXER_DEEPSEEK_MODEL_CATALOG__"
+_DEEPSEEK_MODEL_IDS = {
+    "opencode-go/deepseek-v4-flash": "deepseek-v4-flash",
+}
 
 
 class CodexBackendAdapter(BackendAdapter):
@@ -31,9 +37,42 @@ class CodexBackendAdapter(BackendAdapter):
         self._inner = inner
         self.command = str(getattr(inner, "command", "codex"))
         self.supports_resume = bool(getattr(inner, "supports_resume", True))
+        raw_overrides = entry.get("model_config_overrides", {})
+        self._model_config_overrides = (
+            dict(raw_overrides) if isinstance(raw_overrides, Mapping) else {}
+        )
 
     def build_llm_args(self, selection: Any) -> list[str]:
-        return list(self._inner.build_llm_args(selection))
+        model = str(getattr(selection, "model", "") or "").strip() or self.default_model
+        cli_selection = copy(selection)
+        cli_selection.model = _DEEPSEEK_MODEL_IDS.get(model, model)
+        args = list(self._inner.build_llm_args(cli_selection))
+        args.extend(self._build_model_config_args(model))
+        return args
+
+    def _build_model_config_args(self, model: str) -> list[str]:
+        raw_overrides = self._model_config_overrides.get(model, {})
+        if not isinstance(raw_overrides, Mapping):
+            raise RuntimeError(f"Codex config overrides for model {model!r} must be an object")
+
+        args: list[str] = []
+        for raw_key, raw_value in raw_overrides.items():
+            key = str(raw_key).strip()
+            value = raw_value
+            if value == _DEEPSEEK_MODEL_CATALOG:
+                value = str(Path(__file__).resolve().parent / "data" / "codex-deepseek-models.json")
+            if isinstance(value, bool):
+                encoded = "true" if value else "false"
+            elif isinstance(value, (int, float)):
+                encoded = str(value)
+            elif isinstance(value, str):
+                encoded = json.dumps(value)
+            else:
+                raise RuntimeError(
+                    f"Codex config override {key!r} for model {model!r} must be a string, number, or boolean"
+                )
+            args.extend(["-c", f"{key}={encoded}"])
+        return args
 
     def build_execution_args(self, prefs: Any) -> list[str]:
         return list(self._inner.build_execution_args(prefs))
@@ -106,9 +145,10 @@ class CodexBackendAdapter(BackendAdapter):
     ) -> list[str]:
         resolved_model = model.strip() or self.default_model
         resolved_reasoning = reasoning.strip() or self.default_reasoning
-        command = [self.command, "--model", resolved_model]
+        command = [self.command, "--model", _DEEPSEEK_MODEL_IDS.get(resolved_model, resolved_model)]
         if resolved_reasoning:
             command.extend(["-c", f'model_reasoning_effort="{resolved_reasoning}"'])
+        command.extend(self._build_model_config_args(resolved_model))
         if resolved_model == "gpt-5.5":
             command.extend([
                 "-c",

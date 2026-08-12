@@ -1122,6 +1122,8 @@ class BackendCatalogTests(unittest.TestCase):
                 "gpt-5.3-codex",
                 "gpt-5.3-codex-spark",
                 "gpt-5.2",
+                "deepseek/deepseek-v4-flash-0731",
+                "opencode-go/deepseek-v4-flash",
             ),
         )
 
@@ -2089,6 +2091,85 @@ class DroidRuntimeMaterializationTests(unittest.TestCase):
 
 
 class CodexBackendAdapterTests(unittest.TestCase):
+    def test_deepseek_opencode_model_maps_to_raw_id_and_portable_provider_config(self) -> None:
+        captured: dict[str, object] = {}
+
+        class Inner:
+            command = "codex"
+            supports_resume = True
+
+            @staticmethod
+            def build_llm_args(selection: object) -> list[str]:
+                captured["model"] = getattr(selection, "model")
+                return ["--model", str(getattr(selection, "model"))]
+
+            @staticmethod
+            def build_execution_args(_prefs: object) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_mcp_flags(_selected: dict[str, object], _available: dict[str, object]) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_prompt_args(_prompt: str) -> list[str]:
+                return []
+
+            @staticmethod
+            def prepare_env(_env: dict[str, str], _selection: object) -> None:
+                return None
+
+        selection = types.SimpleNamespace(
+            model="opencode-go/deepseek-v4-flash",
+            reasoning_effort="high",
+        )
+        args = CodexBackendAdapter(Inner()).build_llm_args(selection)
+
+        self.assertEqual(captured["model"], "deepseek-v4-flash")
+        self.assertIn('model_provider="opencode_go"', args)
+        self.assertIn('model_providers.opencode_go.env_key="OPENCODE_GO_API_KEY"', args)
+        catalog_arg = next(value for value in args if value.startswith("model_catalog_json="))
+        catalog_path = Path(json.loads(catalog_arg.split("=", 1)[1]))
+        self.assertTrue(catalog_path.is_file())
+
+    def test_deepseek_opencode_headless_wave_command_uses_same_provider_config(self) -> None:
+        class Inner:
+            command = "codex"
+            supports_resume = True
+
+            @staticmethod
+            def build_mcp_flags(_selected: dict[str, object], _available: dict[str, object]) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_llm_args(_selection: object) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_execution_args(_prefs: object) -> list[str]:
+                return []
+
+            @staticmethod
+            def build_prompt_args(_prompt: str) -> list[str]:
+                return []
+
+            @staticmethod
+            def prepare_env(_env: dict[str, str], _selection: object) -> None:
+                return None
+
+        command = CodexBackendAdapter(Inner()).build_headless_command(
+            model="opencode-go/deepseek-v4-flash",
+            reasoning="high",
+            selected={},
+            available={},
+            prompt="create a file",
+        )
+
+        self.assertEqual(command[:3], ["codex", "--model", "deepseek-v4-flash"])
+        self.assertIn('model_provider="opencode_go"', command)
+        self.assertIn("exec", command)
+        self.assertEqual(command[-1], "create a file")
+
     def test_codex_adapter_materializes_project_local_fixer_skills(self) -> None:
         class Inner:
             command = "codex"
